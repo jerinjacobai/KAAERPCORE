@@ -36,6 +36,7 @@ import { PerformanceHub } from './components/modules/PerformanceHub';
 import { RecruitmentHub } from './components/modules/RecruitmentHub';
 import { CareersPortal } from './components/modules/CareersPortal';
 import { TeamChat } from './components/modules/TeamChat';
+import { LaundryDashboard } from './components/laundry/LaundryDashboard';
 
 const AppContent: React.FC = () => {
   const { session, loading, currentCompanyId, selectCompany, userRole } = useAuth();
@@ -108,6 +109,7 @@ const AppContent: React.FC = () => {
     if (path === 'travel') return AppView.TRAVEL;
     if (path === 'careers') return AppView.CAREERS;
     if (path === 'chat') return AppView.CHAT;
+    if (path === 'laundry') return AppView.LAUNDRY;
     return AppView.DASHBOARD;
   };
 
@@ -136,6 +138,7 @@ const AppContent: React.FC = () => {
     { path: '/travel', element: <TravelExpensesHub />, id: 'travel' },
     { path: '/careers', element: <CareersPortal />, id: 'careers' },
     { path: '/chat', element: <TeamChat />, id: 'chat' },
+    { path: '/laundry', element: <LaundryDashboard />, id: 'laundry' },
   ];
 
   return (

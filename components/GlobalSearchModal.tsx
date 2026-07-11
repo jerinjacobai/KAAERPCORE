@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Command, X, ArrowRight, User, Building, FileText, Settings, LogOut, LayoutGrid, Clock, Calendar, Headphones, Megaphone, Briefcase, Award, Plane, DollarSign } from 'lucide-react';
+import { Search, Command, X, ArrowRight, User, Building, FileText, Settings, LogOut, LayoutGrid, Clock, Calendar, Headphones, Megaphone, Briefcase, Award, Plane, DollarSign, Shirt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUI } from '../contexts/UIContext';
 import { supabase } from '../lib/supabase';
@@ -55,6 +55,7 @@ export const GlobalSearchModal: React.FC = () => {
         { id: 'nav-performance', type: 'NAVIGATION', title: 'Performance', subtitle: 'Goals, OKRs & Reviews', icon: <Award className="w-4 h-4" />, action: () => navigate('/performance') },
         { id: 'nav-loans', type: 'NAVIGATION', title: 'Loans & Benefits', subtitle: 'Advances, Claims & Insurance', icon: <DollarSign className="w-4 h-4" />, action: () => navigate('/loans') },
         { id: 'nav-travel', type: 'NAVIGATION', title: 'Travel & Expenses', subtitle: 'Trips, Hotel & Flight Bookings', icon: <Plane className="w-4 h-4" />, action: () => navigate('/travel') },
+        { id: 'nav-laundry', type: 'NAVIGATION', title: 'Laundry', subtitle: 'Orders, Production, Dispatch & Machines', icon: <Shirt className="w-4 h-4" />, action: () => navigate('/laundry') },
         { id: 'nav-settings', type: 'NAVIGATION', title: 'Settings', subtitle: 'App Preferences', icon: <Settings className="w-4 h-4" />, action: () => navigate('/settings') },
         { id: 'act-notifs', type: 'ACTION', title: 'Notifications', subtitle: 'View latest alerts', icon: <Settings className="w-4 h-4" />, action: () => { toggleSearch(false); toggleNotifications(true); } },
     ];

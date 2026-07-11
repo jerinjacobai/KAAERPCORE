@@ -17,7 +17,8 @@ import {
   DollarSign,
   Award,
   Plane,
-  MessageSquare
+  MessageSquare,
+  Shirt
 } from 'lucide-react';
 import { AppView, ModuleConfig } from './types';
 
@@ -187,5 +188,13 @@ export const MODULES: ModuleConfig[] = [
     icon: MessageSquare,
     color: "text-indigo-600",
     bgColor: "bg-indigo-100",
+  },
+  {
+    id: AppView.LAUNDRY,
+    name: "Laundry",
+    description: "Order, Batch, Machine & Dispatch",
+    icon: Shirt,
+    color: "text-sky-600",
+    bgColor: "bg-sky-100",
   },
 ];

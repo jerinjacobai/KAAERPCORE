@@ -26,6 +26,7 @@ export enum AppView {
   TRAVEL = 'TRAVEL',
   CAREERS = 'CAREERS',
   CHAT = 'CHAT',
+  LAUNDRY = 'LAUNDRY',
 }
 
 export interface ModuleConfig {

@@ -487,3 +487,50 @@ export const generateOrderInvoice = async (orderId: string, journalId: string): 
   if (error) throw error;
   return data as string; // Returns the invoice entry UUID
 };
+
+// ==============================================================================
+// INVENTORY CONSUMPTION INTEGRATION
+// ==============================================================================
+
+export const getInventoryItems = async (companyId: string) => {
+  const { data, error } = await supabase
+    .from('item_master')
+    .select('id, code, name, uom')
+    .eq('company_id', companyId)
+    .order('name');
+  if (error) throw error;
+  return data || [];
+};
+
+export const getWarehouseBins = async (companyId: string) => {
+  const { data, error } = await supabase
+    .from('warehouse_bins')
+    .select('id, name')
+    .eq('company_id', companyId)
+    .order('name');
+  if (error) throw error;
+  return data || [];
+};
+
+export const consumeSupply = async (
+  companyId: string,
+  itemId: string,
+  quantity: number,
+  binId: string,
+  reference: string
+): Promise<void> => {
+  const { error } = await supabase.rpc('rpc_process_stock_movement', {
+    p_company_id: companyId,
+    p_item_id: itemId,
+    p_movement_type: 'OUT',
+    p_from_bin_id: binId,
+    p_to_bin_id: null,
+    p_qty: quantity,
+    p_ref_type: 'Laundry Batch Consumption',
+    p_ref_id: null, // No specific uuid, or we pass null
+    p_unit_cost: 0
+  });
+
+  if (error) throw error;
+};
+

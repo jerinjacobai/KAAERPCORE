@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Play, 
   CheckCircle, 
@@ -10,9 +10,12 @@ import {
   CheckSquare, 
   Square,
   Activity,
-  AlertCircle
+  AlertCircle,
+  Package
 } from 'lucide-react';
 import { LaundryBatch, LaundryMachine, LaundryOrderItem } from './types';
+import { useAuth } from '../../contexts/AuthContext';
+import { getInventoryItems, getWarehouseBins, consumeSupply } from './services';
 
 interface ProductionTabProps {
   batches: LaundryBatch[];
@@ -38,6 +41,54 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
   const [stage, setStage] = useState<LaundryBatch['stage']>('Washing');
   const [machineId, setMachineId] = useState('');
   const [operatorId, setOperatorId] = useState('');
+
+  // Inventory Integration States
+  const { currentCompanyId } = useAuth();
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [warehouseBins, setWarehouseBins] = useState<any[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [selectedBinId, setSelectedBinId] = useState('');
+  const [consumeQty, setConsumeQty] = useState('');
+  const [consuming, setConsuming] = useState(false);
+
+  useEffect(() => {
+    const loadInventoryData = async () => {
+      if (!currentCompanyId) return;
+      try {
+        const [itemsRes, binsRes] = await Promise.all([
+          getInventoryItems(currentCompanyId),
+          getWarehouseBins(currentCompanyId)
+        ]);
+        setInventoryItems(itemsRes);
+        setWarehouseBins(binsRes);
+      } catch (err: any) {
+        console.error('Error fetching inventory items/bins for laundry:', err);
+      }
+    };
+    loadInventoryData();
+  }, [currentCompanyId]);
+
+  const handleConsumeStock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentCompanyId || !selectedItemId || !selectedBinId || !consumeQty) return;
+    const qty = parseFloat(consumeQty);
+    if (isNaN(qty) || qty <= 0) {
+      alert('Quantity must be greater than 0');
+      return;
+    }
+
+    setConsuming(true);
+    try {
+      await consumeSupply(currentCompanyId, selectedItemId, qty, selectedBinId, 'Laundry Operational Log');
+      alert('Stock successfully consumed from inventory!');
+      setConsumeQty('');
+      setSelectedItemId('');
+      setSelectedBinId('');
+    } catch (err: any) {
+      alert('Error consuming supplies: ' + err.message);
+    }
+    setConsuming(false);
+  };
 
   const toggleSelectItem = (id: string) => {
     if (selectedItems.includes(id)) {
@@ -178,127 +229,193 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
           )}
         </div>
 
-        {/* Sidebar: Batch Planner */}
-        <div className="bg-white dark:bg-zinc-950 p-6 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-sm h-fit space-y-4">
-          <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
-            <Activity className="w-5 h-5 text-indigo-500" /> Batch Planner
-          </h3>
+        {/* Right Column */}
+        <div className="space-y-6">
+          {/* Sidebar: Batch Planner */}
+          <div className="bg-white dark:bg-zinc-950 p-6 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-sm h-fit space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+              <Activity className="w-5 h-5 text-indigo-500" /> Batch Planner
+            </h3>
 
-          {!isCreating ? (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pending Garments ({pendingItems.length})</span>
-                {selectedItems.length > 0 && (
-                  <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{selectedItems.length} selected</span>
+            {!isCreating ? (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pending Garments ({pendingItems.length})</span>
+                  {selectedItems.length > 0 && (
+                    <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{selectedItems.length} selected</span>
+                  )}
+                </div>
+
+                {pendingItems.length === 0 ? (
+                  <div className="text-xs text-slate-400 leading-relaxed text-center py-6">
+                    No garments are currently awaiting sorting/production tagging.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {pendingItems.map(item => {
+                      const isSelected = selectedItems.includes(item.id);
+                      return (
+                        <div 
+                          key={item.id} 
+                          onClick={() => toggleSelectItem(item.id)}
+                          className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
+                            isSelected 
+                              ? 'border-indigo-200 bg-indigo-50/20 dark:border-indigo-900/30' 
+                              : 'border-slate-100 dark:border-zinc-800 hover:bg-slate-50/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-indigo-500" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-300" />
+                            )}
+                            <div>
+                              <span className="text-xs font-bold text-slate-800 dark:text-white block">{item.item_name}</span>
+                              <span className="text-[9px] text-slate-400 font-medium">{item.service_name}</span>
+                            </div>
+                          </div>
+                          <span className="text-xs font-bold text-slate-400 dark:text-zinc-500">Qty: {item.quantity}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
+
+                <button
+                  disabled={selectedItems.length === 0}
+                  onClick={handleStartCreate}
+                  className="w-full px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:dark:bg-zinc-900 disabled:shadow-none text-white text-xs font-bold rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" /> Create Batch ({selectedItems.length})
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitBatch} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Initial Stage</label>
+                  <select
+                    value={stage}
+                    onChange={e => setStage(e.target.value as any)}
+                    className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                  >
+                    <option value="Washing">Washing Cycle</option>
+                    <option value="Drying">Drying Cycle</option>
+                    <option value="Ironing">Steam Press / Ironing</option>
+                    <option value="QC">Quality Control</option>
+                    <option value="Packing">Final Packing</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assign Machine</label>
+                  <select
+                    value={machineId}
+                    onChange={e => setMachineId(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                  >
+                    <option value="">-- No machine --</option>
+                    {machines.filter(m => m.type.startsWith(stage.substring(0,4)) || stage === 'QC' || stage === 'Packing').map(mach => (
+                      <option key={mach.id} value={mach.id}>{mach.name} ({mach.code})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assign Operator</label>
+                  <select
+                    value={operatorId}
+                    onChange={e => setOperatorId(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                  >
+                    <option value="">-- No operator --</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex gap-2 justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCancelCreate}
+                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-500 text-xs font-bold rounded-xl transition-all"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl transition-all shadow-md"
+                  >
+                    Start Batch
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {/* Sidebar: Consume cleaning supplies */}
+          <div className="bg-white dark:bg-zinc-950 p-6 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-sm h-fit space-y-4 animate-slide-up">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+              <Package className="w-5 h-5 text-sky-500" /> Supplies Consumption
+            </h3>
+            <p className="text-[10px] text-slate-400 dark:text-zinc-500 leading-relaxed">
+              Deduct laundry detergent, fabric softener, tags, or hangers directly from KAA ERP stock inventory.
+            </p>
+            <form onSubmit={handleConsumeStock} className="space-y-4 pt-1">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Supplies Item</label>
+                <select
+                  required
+                  value={selectedItemId}
+                  onChange={e => setSelectedItemId(e.target.value)}
+                  className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                >
+                  <option value="">-- Choose supply item --</option>
+                  {inventoryItems.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} ({item.code})</option>
+                  ))}
+                </select>
               </div>
 
-              {pendingItems.length === 0 ? (
-                <div className="text-xs text-slate-400 leading-relaxed text-center py-6">
-                  No garments are currently awaiting sorting/production tagging.
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Source Bin</label>
+                  <select
+                    required
+                    value={selectedBinId}
+                    onChange={e => setSelectedBinId(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                  >
+                    <option value="">-- Choose bin --</option>
+                    {warehouseBins.map(bin => (
+                      <option key={bin.id} value={bin.id}>{bin.name}</option>
+                    ))}
+                  </select>
                 </div>
-              ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                  {pendingItems.map(item => {
-                    const isSelected = selectedItems.includes(item.id);
-                    return (
-                      <div 
-                        key={item.id} 
-                        onClick={() => toggleSelectItem(item.id)}
-                        className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
-                          isSelected 
-                            ? 'border-indigo-200 bg-indigo-50/20 dark:border-indigo-900/30' 
-                            : 'border-slate-100 dark:border-zinc-800 hover:bg-slate-50/50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          {isSelected ? (
-                            <CheckSquare className="w-4 h-4 text-indigo-500" />
-                          ) : (
-                            <Square className="w-4 h-4 text-slate-300" />
-                          )}
-                          <div>
-                            <span className="text-xs font-bold text-slate-800 dark:text-white block">{item.item_name}</span>
-                            <span className="text-[9px] text-slate-400 font-medium">{item.service_name}</span>
-                          </div>
-                        </div>
-                        <span className="text-xs font-bold text-slate-400 dark:text-zinc-500">Qty: {item.quantity}</span>
-                      </div>
-                    );
-                  })}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Qty to Consume</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={consumeQty}
+                    onChange={e => setConsumeQty(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                  />
                 </div>
-              )}
+              </div>
 
               <button
-                disabled={selectedItems.length === 0}
-                onClick={handleStartCreate}
-                className="w-full px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:dark:bg-zinc-900 disabled:shadow-none text-white text-xs font-bold rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                type="submit"
+                disabled={consuming}
+                className="w-full px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-100 disabled:text-slate-400 text-white text-xs font-bold rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5"
               >
-                <Plus className="w-4 h-4" /> Create Batch ({selectedItems.length})
+                <Package className="w-4 h-4" /> {consuming ? 'Deducting Stock...' : 'Log Consumption'}
               </button>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmitBatch} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Initial Stage</label>
-                <select
-                  value={stage}
-                  onChange={e => setStage(e.target.value as any)}
-                  className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
-                >
-                  <option value="Washing">Washing Cycle</option>
-                  <option value="Drying">Drying Cycle</option>
-                  <option value="Ironing">Steam Press / Ironing</option>
-                  <option value="QC">Quality Control</option>
-                  <option value="Packing">Final Packing</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assign Machine</label>
-                <select
-                  value={machineId}
-                  onChange={e => setMachineId(e.target.value)}
-                  className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
-                >
-                  <option value="">-- No machine --</option>
-                  {machines.filter(m => m.type.startsWith(stage.substring(0,4)) || stage === 'QC' || stage === 'Packing').map(mach => (
-                    <option key={mach.id} value={mach.id}>{mach.name} ({mach.code})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assign Operator</label>
-                <select
-                  value={operatorId}
-                  onChange={e => setOperatorId(e.target.value)}
-                  className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
-                >
-                  <option value="">-- No operator --</option>
-                  {employees.map(emp => (
-                    <option key={emp.id} value={emp.id}>{emp.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex gap-2 justify-end pt-2">
-                <button
-                  type="button"
-                  onClick={handleCancelCreate}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-500 text-xs font-bold rounded-xl transition-all"
-                >
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl transition-all shadow-md"
-                >
-                  Start Batch
-                </button>
-              </div>
             </form>
-          )}
+          </div>
         </div>
       </div>
     </div>

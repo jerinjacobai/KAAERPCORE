@@ -6,20 +6,17 @@ echo               KAA ERP Deployment Hub
 echo ===================================================
 echo.
 
-REM Verify remotes are set up
+REM Verify remotes are set up and configured for dual pushing
+echo Configuring Git remote URLs...
 git remote | findstr /R "^origin$" >nul
 if errorlevel 1 (
-    git remote add origin https://github.com/jacobjerin38/KAAERPLIVE.git
-) else (
-    git remote set-url origin https://github.com/jacobjerin38/KAAERPLIVE.git
+    git remote add origin https://github.com/jerinjacobdream11-lang/KAAERPCORE.git
 )
-
-git remote | findstr /R "^backup$" >nul
-if errorlevel 1 (
-    git remote add backup https://github.com/jerinjacobdream11-lang/KAAERPLIVE.git
-) else (
-    git remote set-url backup https://github.com/jerinjacobdream11-lang/KAAERPLIVE.git
-)
+git remote set-url origin https://github.com/jerinjacobdream11-lang/KAAERPCORE.git
+git remote set-url --add --push origin https://github.com/jerinjacobdream11-lang/KAAERPCORE.git
+git remote set-url --add --push origin https://github.com/jerinjacobai/KAAERPCORE.git
+echo Remote URLs configured successfully.
+echo.
 
 set TARGET_INPUT=%1
 
@@ -73,11 +70,8 @@ if "%CHOICE%"=="1" (
     echo Merging main...
     git merge main -m "merge: sync main to sandbox"
     
-    echo Pushing to KAA_ERP_SANBOX on origin...
+    echo Pushing to KAA_ERP_SANBOX (Primary & Backup)...
     git push origin KAA_ERP_SANBOX
-    
-    echo Pushing to KAA_ERP_SANBOX on backup...
-    git push backup KAA_ERP_SANBOX
     
     echo Switching back to main...
     git checkout main
@@ -94,11 +88,8 @@ if "%CHOICE%"=="2" (
     echo Deploying to Live Production [main]...
     echo ===================================================
     
-    echo Pushing to LIVE PRODUCTION [main] on origin...
+    echo Pushing to LIVE PRODUCTION [main] (Primary & Backup)...
     git push origin main
-    
-    echo Pushing to LIVE PRODUCTION [main] on backup...
-    git push backup main
     
     echo.
     echo ===================================================

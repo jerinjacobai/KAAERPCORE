@@ -301,6 +301,19 @@ export const Login: React.FC = () => {
                         </button>
                     </form>
 
+                    <div className="mt-6 text-center">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsSignUp(!isSignUp);
+                                setError(null);
+                            }}
+                            className="text-xs font-bold text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 transition-colors"
+                        >
+                            {isSignUp ? 'Already have a workspace? Sign In' : "Don't have a workspace? Register Company"}
+                        </button>
+                    </div>
+
                 </div>
 
                 <div className="mt-8 text-center">

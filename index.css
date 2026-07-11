@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+/* Modern Minimal Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #E4E4E7;
+  border-radius: 10px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A1A1AA;
+}
+
+/* Glass Utility - Cleaner, less blur */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(228, 228, 231, 0.6);
+}
+
+.dark .glass-panel {
+  background: rgba(24, 24, 27, 0.7);
+  border: 1px solid rgba(63, 63, 70, 0.5);
+}
+
+/* Print Styles - optimized for accounting reports */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  /* Hide sidebar, navigation, headers, filters, buttons, modal buttons */
+  aside,
+  nav,
+  header,
+  .no-print,
+  button,
+  .flex.justify-between.items-center button,
+  input,
+  select {
+    display: none !important;
+  }
+  /* Reset container widths for full page printing */
+  main,
+  .main-content,
+  #root,
+  #root > div {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+    position: static !important;
+  }
+  /* Keep printable areas visible */
+  .printable-area {
+    display: block !important;
+    width: 100% !important;
+  }
+}
+
+/* Global flex-shrink safety net to prevent elements from refusing to shrink */
+.flex-1 {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Responsive p-8 overrides: scale padding down on smaller devices to maximize viewport usage */
+@media (max-width: 1023px) {
+  .p-8 {
+    padding: 1.5rem !important; /* equivalent to p-6 */
+  }
+  .p-8.md\:p-12 {
+    padding: 1.5rem !important;
+  }
+  .mb-8 {
+    margin-bottom: 1.5rem !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .p-8 {
+    padding: 1rem !important; /* equivalent to p-4 */
+  }
+  .mb-8 {
+    margin-bottom: 1rem !important;
+  }
+}

@@ -7,7 +7,7 @@ import {
   EmployeesWidget, AttendanceWidget, LeaveWidget, PayrollWidget, CRMWidget, OrganisationWidget, ESSPWidget, UpcomingWidget,
   AccountingWidget, InventoryWidget, ManufacturingWidget, ProcurementWidget,
   ProjectsWidget, DocumentsWidget, SalesWidget, HelpDeskWidget, MarketingWidget,
-  RecruitmentWidget, PerformanceWidget, LoansWidget, TravelWidget
+  RecruitmentWidget, PerformanceWidget, LoansWidget, TravelWidget, LaundryWidget
 } from './DashboardWidgets';
 import { useUI } from '../contexts/UIContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -420,6 +420,14 @@ export const Dashboard: React.FC = () => {
           <TravelWidget
             onClick={() => handleNavigate(AppView.TRAVEL)}
             className="md:col-span-1 min-h-[200px]"
+          />
+        );
+
+      case AppView.LAUNDRY:
+        return (
+          <LaundryWidget
+            onClick={() => handleNavigate(AppView.LAUNDRY)}
+            className="md:col-span-1 min-h-[180px]"
           />
         );
 

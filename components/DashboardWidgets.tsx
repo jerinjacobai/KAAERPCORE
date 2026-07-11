@@ -3,7 +3,7 @@ import {
     Users, Building2, TrendingUp, TrendingDown, Calendar, Briefcase,
     ChevronRight, PieChart, Activity, UserPlus, Package, Boxes,
     AlertTriangle, DollarSign, Landmark, Clock, Bell, FileText,
-    Headphones, Megaphone, Award, Plane
+    Headphones, Megaphone, Award, Plane, Shirt
 } from 'lucide-react';
 
 interface WidgetProps {
@@ -606,4 +606,20 @@ export const TravelWidget: React.FC<WidgetProps & { pendingTripsCount?: number }
         </div>
     </WidgetCard>
 );
+
+// ─── Laundry Widget ──────────────────────────────────────────────────────────
+export const LaundryWidget: React.FC<WidgetProps> = ({ onClick, className }) => (
+    <WidgetCard onClick={onClick} className={className} gradient="bg-gradient-to-br from-sky-400 to-sky-600">
+        <div className="p-3 w-fit rounded-2xl bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 mb-3">
+            <Shirt className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Laundry Operations</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Order, Batch &amp; Fleet Logistics</p>
+        <div className="mt-auto pt-3 flex items-center gap-2 text-xs font-bold text-slate-500 group-hover:text-sky-700 transition-colors uppercase tracking-widest">
+            <span>Manage Module</span>
+            <ChevronRight className="w-3 h-3" strokeWidth={3} />
+        </div>
+    </WidgetCard>
+);
+
 

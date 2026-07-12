@@ -351,6 +351,7 @@ export const LaundryDashboard: React.FC = () => {
                 items={items}
                 machines={machines}
                 pricing={pricing}
+                customers={customers}
                 onSaveService={handleSaveService}
                 onSaveItem={handleSaveItem}
                 onSaveMachine={handleSaveMachine}

@@ -51,6 +51,15 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
   const [consumeQty, setConsumeQty] = useState('');
   const [consuming, setConsuming] = useState(false);
 
+  // Phase 2 QC States
+  const [isQcOpen, setIsQcOpen] = useState(false);
+  const [qcBatch, setQcBatch] = useState<LaundryBatch | null>(null);
+  const [qcScore, setQcScore] = useState(100);
+  const [qcStainRemoved, setQcStainRemoved] = useState(true);
+  const [qcDamageFound, setQcDamageFound] = useState(false);
+  const [qcComments, setQcComments] = useState('');
+  const [savingQc, setSavingQc] = useState(false);
+
   useEffect(() => {
     const loadInventoryData = async () => {
       if (!currentCompanyId) return;
@@ -128,6 +137,12 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
   };
 
   const handleAdvanceStage = async (batch: LaundryBatch) => {
+    if (batch.status === 'In Progress' && batch.stage === 'QC') {
+      setQcBatch(batch);
+      setIsQcOpen(true);
+      return;
+    }
+
     let nextStage: LaundryBatch['stage'] = 'Washing';
     let nextStatus: LaundryBatch['status'] = 'In Progress';
     
@@ -148,6 +163,44 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
     } catch (err: any) {
       alert('Error updating batch status: ' + err.message);
     }
+  };
+
+  const handleSubmitQc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!qcBatch || !currentCompanyId) return;
+    setSavingQc(true);
+    try {
+      const { supabase } = await import('../../lib/supabase');
+      const { data: batchItems } = await supabase
+        .from('laundry_batch_items')
+        .select('order_item_id')
+        .eq('company_id', currentCompanyId)
+        .eq('batch_id', qcBatch.id);
+
+      if (batchItems && batchItems.length > 0) {
+        const inserts = batchItems.map(item => ({
+          company_id: currentCompanyId,
+          order_item_id: item.order_item_id,
+          check_status: qcScore >= 80 ? 'Passed' : 'Rewash',
+          stain_removed: qcStainRemoved,
+          damage_found: qcDamageFound,
+          comments: qcComments || 'Passed Quality Checklist'
+        }));
+        await supabase.from('laundry_quality_logs').insert(inserts);
+      }
+
+      await onUpdateBatchStage(qcBatch.id, 'Packing', 'Completed');
+      setIsQcOpen(false);
+      setQcBatch(null);
+      setQcScore(100);
+      setQcStainRemoved(true);
+      setQcDamageFound(false);
+      setQcComments('');
+      alert('Quality check completed and logged successfully!');
+    } catch (err: any) {
+      alert('Error saving QC records: ' + err.message);
+    }
+    setSavingQc(false);
   };
 
   return (
@@ -418,6 +471,88 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Quality Control Checklist Dialog */}
+      {isQcOpen && qcBatch && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-950 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-2xl w-full max-w-md p-6 overflow-y-auto max-h-[90vh] animate-scale-in">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-2">Quality Control Checklist</h3>
+            <p className="text-[10px] text-slate-400 dark:text-zinc-500 leading-relaxed mb-4">
+              Perform inspection on Batch **{qcBatch.batch_number}** before packing and delivery storage.
+            </p>
+
+            <form onSubmit={handleSubmitQc} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quality Score (1 - 100)</label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  max="100"
+                  value={qcScore}
+                  onChange={e => setQcScore(Number(e.target.value))}
+                  className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2 p-3 bg-slate-50 dark:bg-zinc-900 rounded-2xl border border-slate-100 dark:border-zinc-800/50">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="qc-stain"
+                    checked={qcStainRemoved}
+                    onChange={e => setQcStainRemoved(e.target.checked)}
+                    className="rounded text-indigo-500 focus:ring-indigo-500 h-4 w-4"
+                  />
+                  <label htmlFor="qc-stain" className="text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
+                    All stains successfully removed
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="checkbox"
+                    id="qc-damage"
+                    checked={qcDamageFound}
+                    onChange={e => setQcDamageFound(e.target.checked)}
+                    className="rounded text-indigo-500 focus:ring-indigo-500 h-4 w-4"
+                  />
+                  <label htmlFor="qc-damage" className="text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer text-rose-500">
+                    Fabric damage found (requires review)
+                  </label>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Inspection Comments</label>
+                <textarea
+                  value={qcComments}
+                  onChange={e => setQcComments(e.target.value)}
+                  placeholder="Inspector observations, folding notes, packaging instructions..."
+                  className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white h-16"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsQcOpen(false)}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-500 text-xs font-bold rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingQc}
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all shadow-md"
+                >
+                  {savingQc ? 'Logging...' : 'Approve & Pass Batch'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

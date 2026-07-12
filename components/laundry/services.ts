@@ -534,3 +534,174 @@ export const consumeSupply = async (
   if (error) throw error;
 };
 
+// ==============================================================================
+// PHASE 2 EXTENSIONS SERVICES
+// ==============================================================================
+
+export const getCustomerWallet = async (companyId: string, customerId: string) => {
+  const { data, error } = await supabase
+    .from('laundry_wallets')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('customer_id', customerId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
+
+export const adjustWalletBalance = async (
+  companyId: string,
+  customerId: string,
+  amount: number,
+  type: 'Deposit' | 'Deduction' | 'Refund' | 'LoyaltyCredit',
+  description: string
+): Promise<void> => {
+  // First, find or create the wallet
+  let { data: wallet, error: getErr } = await supabase
+    .from('laundry_wallets')
+    .select('id, balance')
+    .eq('company_id', companyId)
+    .eq('customer_id', customerId)
+    .maybeSingle();
+
+  if (getErr) throw getErr;
+
+  let walletId = wallet?.id;
+
+  if (!wallet) {
+    const { data: newWallet, error: createErr } = await supabase
+      .from('laundry_wallets')
+      .insert({
+        company_id: companyId,
+        customer_id: customerId,
+        balance: 0.00,
+        loyalty_points: 0
+      })
+      .select('id, balance')
+      .single();
+
+    if (createErr) throw createErr;
+    wallet = newWallet;
+    walletId = newWallet.id;
+  }
+
+  const currentBalance = Number(wallet.balance);
+  const newBalance = type === 'Deduction' ? currentBalance - amount : currentBalance + amount;
+
+  // Insert Transaction
+  const { error: txErr } = await supabase
+    .from('laundry_wallet_transactions')
+    .insert({
+      company_id: companyId,
+      wallet_id: walletId,
+      amount,
+      transaction_type: type,
+      description
+    });
+
+  if (txErr) throw txErr;
+
+  // Update Wallet Balance
+  const { error: updateErr } = await supabase
+    .from('laundry_wallets')
+    .update({ balance: newBalance })
+    .eq('id', walletId);
+
+  if (updateErr) throw updateErr;
+};
+
+export const getCorporateContracts = async (companyId: string) => {
+  const { data, error } = await supabase
+    .from('laundry_contracts')
+    .select('*, customer:crm_customers(name)')
+    .eq('company_id', companyId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(d => ({
+    ...d,
+    customer_name: d.customer?.name || 'Unknown'
+  }));
+};
+
+export const saveCorporateContract = async (companyId: string, contract: any) => {
+  if (contract.id) {
+    const { error } = await supabase
+      .from('laundry_contracts')
+      .update(contract)
+      .eq('id', contract.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('laundry_contracts')
+      .insert({ ...contract, company_id: companyId });
+    if (error) throw error;
+  }
+};
+
+export const getMaintenanceLogs = async (companyId: string, machineId: string) => {
+  const { data, error } = await supabase
+    .from('laundry_maintenance')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('machine_id', machineId)
+    .order('performed_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const createMaintenanceLog = async (companyId: string, log: any) => {
+  const { error } = await supabase
+    .from('laundry_maintenance')
+    .insert({ ...log, company_id: companyId });
+
+  if (error) throw error;
+
+  // If a breakdown or AMC is scheduled, update the machine status
+  if (log.type === 'Breakdown' || log.type === 'AMC') {
+    const nextStatus = log.type === 'Breakdown' ? 'Breakdown' : 'Maintenance';
+    await supabase
+      .from('laundry_machines')
+      .update({ status: nextStatus })
+      .eq('id', log.machine_id);
+  } else if (log.type === 'Preventive' || log.type === 'AMC') {
+    // Rerun check to see if we set back to Idle
+    await supabase
+      .from('laundry_machines')
+      .update({ status: 'Idle' })
+      .eq('id', log.machine_id);
+  }
+};
+
+export const getDriverShifts = async (companyId: string) => {
+  const { data, error } = await supabase
+    .from('laundry_driver_shifts')
+    .select('*, driver:employees(name)')
+    .eq('company_id', companyId)
+    .order('shift_date', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(d => ({
+    ...d,
+    driver_name: d.driver?.name || 'Driver'
+  }));
+};
+
+export const saveDriverShift = async (companyId: string, shift: any) => {
+  if (shift.id) {
+    const { error } = await supabase
+      .from('laundry_driver_shifts')
+      .update(shift)
+      .eq('id', shift.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('laundry_driver_shifts')
+      .insert({ ...shift, company_id: companyId });
+    if (error) throw error;
+  }
+};
+
+

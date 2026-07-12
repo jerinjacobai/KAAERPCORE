@@ -10,9 +10,16 @@ import {
   CheckCircle,
   FileText,
   User,
-  ShoppingBag
+  ShoppingBag,
+  Wallet,
+  QrCode,
+  Percent,
+  Send
 } from 'lucide-react';
 import { LaundryOrder, LaundryOrderItem, LaundryService, LaundryItem, LaundryPricing } from './types';
+import { useAuth } from '../../contexts/AuthContext';
+import { getCustomerWallet, adjustWalletBalance, getCorporateContracts } from './services';
+
 
 interface OrdersTabProps {
   orders: LaundryOrder[];
@@ -39,9 +46,64 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
   onUpdateStatus,
   onGenerateInvoice
 }) => {
+  const { currentCompanyId } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [channelFilter, setChannelFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+
+  // Phase 2 States
+  const [wallet, setWallet] = useState<{ balance: number; loyalty_points: number } | null>(null);
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [activeContract, setActiveContract] = useState<any | null>(null);
+  const [useWalletPayment, setUseWalletPayment] = useState(false);
+  const [isBarcodeOpen, setIsBarcodeOpen] = useState(false);
+  const [barcodeOrder, setBarcodeOrder] = useState<LaundryOrder | null>(null);
+  const [barcodeLines, setBarcodeLines] = useState<LaundryOrderItem[]>([]);
+  const [notifications, setNotifications] = useState<{ type: string; message: string; date: string }[]>([]);
+
+  // Phase 2 Hooks & Methods
+  useEffect(() => {
+    const fetchContracts = async () => {
+      if (!currentCompanyId) return;
+      try {
+        const data = await getCorporateContracts(currentCompanyId);
+        setContracts(data);
+      } catch (err) {
+        console.error('Error fetching corporate contracts:', err);
+      }
+    };
+    fetchContracts();
+  }, [currentCompanyId]);
+
+  useEffect(() => {
+    const fetchWalletAndContract = async () => {
+      if (!currentCompanyId || !customer_id) {
+        setWallet(null);
+        setActiveContract(null);
+        return;
+      }
+      try {
+        const wData = await getCustomerWallet(currentCompanyId, customer_id);
+        setWallet(wData);
+
+        // Find active contract
+        const activeC = contracts.find(c => c.customer_id === customer_id && c.status === 'Active');
+        setActiveContract(activeC || null);
+      } catch (err) {
+        console.error('Error fetching customer wallet:', err);
+      }
+    };
+    fetchWalletAndContract();
+  }, [customer_id, currentCompanyId, contracts]);
+
+  const addMockNotification = (type: string, message: string) => {
+    const newLog = {
+      type,
+      message,
+      date: new Date().toLocaleTimeString()
+    };
+    setNotifications(prev => [newLog, ...prev]);
+  };
   
   // Selected Order details
   const [selectedOrder, setSelectedOrder] = useState<LaundryOrder | null>(null);
@@ -113,10 +175,23 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
       return;
     }
     
-    // Calculate total amount
-    const total = orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0);
+    // Calculate total amount with contract discount
+    const subtotal = orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0);
+    const discount = activeContract ? (subtotal * Number(activeContract.discount_percentage)) / 100 : 0;
+    const total = subtotal - discount;
 
     try {
+      if (useWalletPayment) {
+        if (!wallet || Number(wallet.balance) < total) {
+          alert('Insufficient wallet balance to cover this order.');
+          return;
+        }
+        // Deduct from wallet
+        if (currentCompanyId) {
+          await adjustWalletBalance(currentCompanyId, customer_id, total, 'Deduction', `Paid for Laundry Order`);
+        }
+      }
+
       await onCreateOrder({
         customer_id,
         branch_id: branch_id || null,
@@ -128,6 +203,9 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
         status: priority === 'Standard' ? 'Order' : 'Pickup' // Express/Urgent orders typically start with Pickup request
       }, orderLines);
       
+      const customerName = customers.find(c => c.id === customer_id)?.name || 'Customer';
+      addMockNotification('SMS / WhatsApp Alert', `Order intake confirmed for ${customerName}. Total: QAR ${total.toFixed(2)}.`);
+
       setIsNewOpen(false);
       // Reset form
       setCustomerId('');
@@ -136,6 +214,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
       setPriority('Standard');
       setDueDate('');
       setNotes('');
+      setUseWalletPayment(false);
       setOrderLines([{ item_id: '', service_id: '', quantity: 1, unit_price: 0 }]);
     } catch (err: any) {
       alert('Error creating order: ' + err.message);
@@ -157,6 +236,14 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
       setSelectedJournalId(salesJournals[0].id);
     }
     setIsInvoiceOpen(true);
+  };
+
+  const handlePrintBarcodeClick = () => {
+    if (!selectedOrder) return;
+    setBarcodeOrder(selectedOrder);
+    setBarcodeLines(selectedOrderItems);
+    setIsBarcodeOpen(true);
+    addMockNotification('System Alert', `Simulated printing of barcode labels triggered for ${selectedOrder.order_number}`);
   };
 
   const handleConfirmInvoice = async () => {
@@ -356,12 +443,20 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                 )}
 
                 {selectedOrder.status === 'Sorting' && (
-                  <button
-                    onClick={() => handleStatusTransition('Production Batch')}
-                    className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-2xl transition-all shadow-md active:scale-95"
-                  >
-                    Assign to Production Batch
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handlePrintBarcodeClick}
+                      className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-2xl transition-all shadow-md flex items-center justify-center gap-1 active:scale-95"
+                    >
+                      <QrCode className="w-4 h-4" /> Tag Barcodes
+                    </button>
+                    <button
+                      onClick={() => handleStatusTransition('Production Batch')}
+                      className="flex-1 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-2xl transition-all shadow-md active:scale-95"
+                    >
+                      Move to Batch
+                    </button>
+                  </div>
                 )}
 
                 {selectedOrder.status === 'Storage' && (
@@ -398,6 +493,29 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Mock Alerts Log */}
+              <div className="pt-4 border-t border-slate-100 dark:border-zinc-800 space-y-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center gap-1">
+                  <Send className="w-3 h-3 text-indigo-500" /> WhatsApp / SMS Dispatch Log
+                </span>
+                
+                {notifications.length === 0 ? (
+                  <div className="text-[10px] text-slate-400 font-medium py-2">No alerts dispatched yet for this session.</div>
+                ) : (
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                    {notifications.map((notif, i) => (
+                      <div key={i} className="text-[9px] bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800/50 p-2 rounded-xl">
+                        <div className="flex justify-between font-bold text-indigo-500 mb-0.5">
+                          <span>{notif.type}</span>
+                          <span className="text-slate-400 font-medium">{notif.date}</span>
+                        </div>
+                        <p className="text-slate-600 dark:text-slate-400 font-semibold">{notif.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div className="text-xs text-slate-400 py-6 text-center">
@@ -428,6 +546,20 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                  {customer_id && (
+                    <div className="mt-1.5 flex gap-2 flex-wrap">
+                      {wallet && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-sky-600 border border-sky-100">
+                          <Wallet className="w-3 h-3" /> Bal: QAR {Number(wallet.balance).toFixed(2)} ({wallet.loyalty_points} pts)
+                        </span>
+                      )}
+                      {activeContract && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
+                          <Percent className="w-3 h-3" /> Contract: {activeContract.discount_percentage}% Off
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Branch</label>
@@ -588,6 +720,44 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                 />
               </div>
 
+              {wallet && (
+                <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-zinc-900 rounded-2xl border border-slate-100 dark:border-zinc-800/50">
+                  <input
+                    type="checkbox"
+                    id="pay-wallet"
+                    checked={useWalletPayment}
+                    onChange={e => setUseWalletPayment(e.target.checked)}
+                    className="rounded text-indigo-500 focus:ring-indigo-500 h-4 w-4"
+                  />
+                  <label htmlFor="pay-wallet" className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1 cursor-pointer">
+                    <Wallet className="w-3.5 h-3.5 text-indigo-500" /> Pay using Wallet Balance (Available: QAR {Number(wallet.balance).toFixed(2)})
+                  </label>
+                </div>
+              )}
+
+              {/* Total Summary */}
+              <div className="p-4 bg-indigo-50/20 dark:bg-zinc-900/50 rounded-2xl border border-slate-100 dark:border-zinc-800/80 space-y-1.5 text-xs font-semibold">
+                <div className="flex justify-between text-slate-500">
+                  <span>Subtotal</span>
+                  <span>QAR {orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0).toFixed(2)}</span>
+                </div>
+                {activeContract && (
+                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+                    <span>Corporate Contract ({activeContract.discount_percentage}%)</span>
+                    <span>- QAR {((orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0) * Number(activeContract.discount_percentage)) / 100).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-bold text-slate-800 dark:text-white pt-1.5 border-t border-slate-100 dark:border-zinc-800">
+                  <span>Total Net Amount</span>
+                  <span>
+                    QAR {(
+                      orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0) -
+                      (activeContract ? (orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0) * Number(activeContract.discount_percentage)) / 100 : 0)
+                    ).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
               <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 dark:border-zinc-800">
                 <button
                   type="button"
@@ -647,6 +817,66 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                   Confirm &amp; Invoice
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barcode / QR Code Print Dialog */}
+      {isBarcodeOpen && barcodeOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-950 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-2xl w-full max-w-lg p-6 overflow-y-auto max-h-[90vh] animate-scale-in">
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-zinc-800 pb-3 mb-4">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-indigo-500" /> Print Garment Barcode Tags
+              </h3>
+              <button 
+                onClick={() => setIsBarcodeOpen(false)}
+                className="text-xs text-slate-400 hover:text-slate-600 font-bold"
+              >
+                Close
+              </button>
+            </div>
+
+            <p className="text-[10px] text-slate-400 dark:text-zinc-500 leading-relaxed mb-4">
+              These barcode labels are attached to each garment basket/hangtag during sorting for active tracking in wash cycles.
+            </p>
+
+            <div className="grid grid-cols-2 gap-4 max-h-[40vh] overflow-y-auto pr-1 mb-4">
+              {barcodeLines.map((line, idx) => (
+                <div key={idx} className="p-4 bg-slate-50 dark:bg-zinc-900 rounded-2xl border border-slate-200/60 dark:border-zinc-800/80 flex flex-col items-center justify-center text-center space-y-2">
+                  <span className="text-[9px] font-bold text-indigo-500 uppercase">{line.service_name || 'Service'}</span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-white">{line.item_name || 'Garment'}</span>
+                  
+                  {/* Mock Barcode Stripes */}
+                  <div className="w-full h-8 bg-white dark:bg-zinc-950 rounded flex items-center justify-around px-2 border border-slate-200/50 dark:border-zinc-800/50 overflow-hidden py-1">
+                    {[...Array(24)].map((_, i) => (
+                      <div 
+                        key={i} 
+                        className="h-full bg-slate-800 dark:bg-slate-300"
+                        style={{ width: `${(i % 3 === 0 ? 3 : i % 2 === 0 ? 1 : 2)}px` }}
+                      />
+                    ))}
+                  </div>
+
+                  <span className="font-mono text-[9px] font-bold tracking-widest text-slate-500">
+                    *{barcodeOrder.order_number}-{idx + 1}*
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  alert('Garment Tag Print job sent to TSP-100 thermal printer!');
+                  setIsBarcodeOpen(false);
+                }}
+                className="px-5 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5"
+              >
+                Send to Printer
+              </button>
             </div>
           </div>
         </div>

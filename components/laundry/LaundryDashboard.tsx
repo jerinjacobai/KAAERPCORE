@@ -7,7 +7,8 @@ import {
   Truck, 
   Sliders, 
   TrendingUp, 
-  Loader 
+  Loader,
+  Smartphone
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
@@ -37,8 +38,9 @@ import { OrdersTab } from './OrdersTab';
 import { ProductionTab } from './ProductionTab';
 import { PickupDeliveryTab } from './PickupDeliveryTab';
 import { MastersTab } from './MastersTab';
+import { EmployeePortalTab } from './EmployeePortalTab';
 
-type TabId = 'dashboard' | 'orders' | 'production' | 'logistics' | 'masters';
+type TabId = 'dashboard' | 'orders' | 'production' | 'logistics' | 'masters' | 'portal';
 
 export const LaundryDashboard: React.FC = () => {
   const { currentCompanyId } = useAuth();
@@ -301,6 +303,16 @@ export const LaundryDashboard: React.FC = () => {
               >
                 <Sliders className="w-4 h-4" /> Module Settings
               </button>
+              <button
+                onClick={() => setActiveTab('portal')}
+                className={`flex items-center gap-2 px-4 py-4 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
+                  activeTab === 'portal'
+                    ? 'border-indigo-500 text-indigo-500'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Smartphone className="w-4 h-4" /> Employee Portal (Mobile)
+              </button>
             </nav>
           </div>
 
@@ -356,6 +368,23 @@ export const LaundryDashboard: React.FC = () => {
                 onSaveItem={handleSaveItem}
                 onSaveMachine={handleSaveMachine}
                 onSavePricing={handleSavePricing}
+              />
+            )}
+            {activeTab === 'portal' && (
+              <EmployeePortalTab 
+                orders={orders}
+                batches={batches}
+                machines={machines}
+                employees={employees}
+                customers={customers}
+                services={services}
+                items={items}
+                locations={locations}
+                pricing={pricing}
+                onCreateOrder={handleCreateOrder}
+                onUpdateStatus={handleUpdateOrderStatus}
+                onUpdateBatchStage={handleUpdateBatchStage}
+                onCompleteJob={handleCompleteJob}
               />
             )}
           </div>

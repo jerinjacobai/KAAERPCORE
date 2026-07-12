@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { LaundryOrder, LaundryOrderItem, LaundryService, LaundryItem, LaundryPricing } from './types';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCustomerWallet, adjustWalletBalance, getCorporateContracts } from './services';
+import { getCustomerWallet, adjustWalletBalance, getCorporateContracts, getOrderItems } from './services';
 
 
 interface OrdersTabProps {
@@ -50,6 +50,27 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [channelFilter, setChannelFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+
+  // Selected Order details
+  const [selectedOrder, setSelectedOrder] = useState<LaundryOrder | null>(null);
+  const [selectedOrderItems, setSelectedOrderItems] = useState<LaundryOrderItem[]>([]);
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
+
+  // New Order Dialog
+  const [isNewOpen, setIsNewOpen] = useState(false);
+  const [customer_id, setCustomerId] = useState('');
+  const [branch_id, setBranchId] = useState('');
+  const [channel, setChannel] = useState('Walk-in');
+  const [priority, setPriority] = useState<'Standard' | 'Express' | 'Urgent'>('Standard');
+  const [due_date, setDueDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [orderLines, setOrderLines] = useState<{ item_id: string; service_id: string; quantity: number; unit_price: number }[]>([
+    { item_id: '', service_id: '', quantity: 1, unit_price: 0 }
+  ]);
+
+  // Invoice Dialog
+  const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
+  const [selectedJournalId, setSelectedJournalId] = useState('');
 
   // Phase 2 States
   const [wallet, setWallet] = useState<{ balance: number; loyalty_points: number } | null>(null);
@@ -104,33 +125,11 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
     };
     setNotifications(prev => [newLog, ...prev]);
   };
-  
-  // Selected Order details
-  const [selectedOrder, setSelectedOrder] = useState<LaundryOrder | null>(null);
-  const [selectedOrderItems, setSelectedOrderItems] = useState<LaundryOrderItem[]>([]);
-  const [isLoadingItems, setIsLoadingItems] = useState(false);
-
-  // New Order Dialog
-  const [isNewOpen, setIsNewOpen] = useState(false);
-  const [customer_id, setCustomerId] = useState('');
-  const [branch_id, setBranchId] = useState('');
-  const [channel, setChannel] = useState('Walk-in');
-  const [priority, setPriority] = useState<'Standard' | 'Express' | 'Urgent'>('Standard');
-  const [due_date, setDueDate] = useState('');
-  const [notes, setNotes] = useState('');
-  const [orderLines, setOrderLines] = useState<{ item_id: string; service_id: string; quantity: number; unit_price: number }[]>([
-    { item_id: '', service_id: '', quantity: 1, unit_price: 0 }
-  ]);
-
-  // Invoice Dialog
-  const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
-  const [selectedJournalId, setSelectedJournalId] = useState('');
 
   const handleSelectOrder = async (order: LaundryOrder) => {
     setSelectedOrder(order);
     setIsLoadingItems(true);
     try {
-      const { getOrderItems } = await import('./services');
       const data = await getOrderItems(order.id);
       setSelectedOrderItems(data);
     } catch (err: any) {

@@ -146,6 +146,20 @@ const CompanyProfileView = () => {
         }
     };
 
+    const handleRemoveLogo = async () => {
+        if (!company.id) return;
+        setUploading(true);
+        try {
+            setCompany({ ...company, logo_url: '' });
+            await supabase.from('companies').update({ logo_url: null }).eq('id', company.id);
+        } catch (error) {
+            console.error('Error removing logo:', error);
+            alert('Error removing logo. Please try again.');
+        } finally {
+            setUploading(false);
+        }
+    };
+
     if (loading) return <div className="p-8 text-slate-500">Loading company profile...</div>;
 
     return (
@@ -250,10 +264,21 @@ const CompanyProfileView = () => {
                                 <Edit3 className="w-6 h-6 text-white" />
                             </div>
                         </div>
-                        <button className="text-blue-600 font-bold text-sm hover:underline relative" disabled={uploading}>
-                            {uploading ? 'Uploading...' : 'Change Logo'}
-                            {!uploading && <input type="file" accept="image/*" onChange={handleLogoUpload} className="absolute inset-0 opacity-0 cursor-pointer" />}
-                        </button>
+                        <div className="flex gap-4">
+                            <button className="text-blue-600 font-bold text-sm hover:underline relative" disabled={uploading}>
+                                {uploading ? 'Uploading...' : 'Change Logo'}
+                                {!uploading && <input type="file" accept="image/*" onChange={handleLogoUpload} className="absolute inset-0 opacity-0 cursor-pointer" />}
+                            </button>
+                            {company.logo_url && (
+                                <button 
+                                    onClick={handleRemoveLogo} 
+                                    className="text-red-500 font-bold text-sm hover:underline"
+                                    disabled={uploading}
+                                >
+                                    Remove Logo
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {/* Branding / Documents (Placeholder) */}

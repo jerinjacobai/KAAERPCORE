@@ -704,4 +704,188 @@ export const saveDriverShift = async (companyId: string, shift: any) => {
   }
 };
 
+// ==============================================================================
+// PHASE 3 EXTENSIONS SERVICES
+// ==============================================================================
+
+export const getLaundryVehicles = async (companyId: string) => {
+  const { data, error } = await supabase
+    .from('laundry_vehicles')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const saveLaundryVehicle = async (companyId: string, vehicle: any) => {
+  if (vehicle.id) {
+    const { error } = await supabase
+      .from('laundry_vehicles')
+      .update(vehicle)
+      .eq('id', vehicle.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('laundry_vehicles')
+      .insert({ ...vehicle, company_id: companyId });
+    if (error) throw error;
+  }
+};
+
+export const getFuelLogs = async (companyId: string, vehicleId: string) => {
+  const { data, error } = await supabase
+    .from('laundry_fuel_logs')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('vehicle_id', vehicleId)
+    .order('date', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const addFuelLog = async (companyId: string, log: any) => {
+  const { error } = await supabase
+    .from('laundry_fuel_logs')
+    .insert({ ...log, company_id: companyId });
+
+  if (error) throw error;
+
+  // Also update vehicle current_mileage to the odometer reading of the fuel log
+  const { error: vehErr } = await supabase
+    .from('laundry_vehicles')
+    .update({ current_mileage: log.odometer })
+    .eq('id', log.vehicle_id);
+
+  if (vehErr) throw vehErr;
+};
+
+export const getGPSHistory = async (companyId: string, jobId: string, jobType: string) => {
+  const { data, error } = await supabase
+    .from('laundry_gps_history')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('job_id', jobId)
+    .eq('job_type', jobType)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const addGPSCoordinate = async (companyId: string, coordinate: any) => {
+  const { error } = await supabase
+    .from('laundry_gps_history')
+    .insert({ ...coordinate, company_id: companyId });
+
+  if (error) throw error;
+};
+
+export const getLaundryFeedback = async (companyId: string) => {
+  const { data, error } = await supabase
+    .from('laundry_feedback')
+    .select('*, customer:crm_customers(name), order:laundry_orders(order_number)')
+    .eq('company_id', companyId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(d => ({
+    ...d,
+    customer_name: d.customer?.name || 'Unknown',
+    order_number: d.order?.order_number || 'Unknown'
+  }));
+};
+
+export const saveLaundryFeedback = async (companyId: string, feedback: any) => {
+  const { error } = await supabase
+    .from('laundry_feedback')
+    .insert({ ...feedback, company_id: companyId });
+
+  if (error) throw error;
+};
+
+// ==============================================================================
+// MOBILE PORTAL API MOCKUPS
+// ==============================================================================
+
+export const getMobileDriverJobs = async (companyId: string, driverId: string) => {
+  // Fetch pickups
+  const { data: pickups, error: pickErr } = await supabase
+    .from('laundry_pickups')
+    .select('*, customer:crm_customers(name, phone, address)')
+    .eq('company_id', companyId)
+    .eq('driver_id', driverId)
+    .neq('status', 'Completed');
+
+  if (pickErr) throw pickErr;
+
+  // Fetch deliveries
+  const { data: deliveries, error: delErr } = await supabase
+    .from('laundry_deliveries')
+    .select('*, order:laundry_orders(order_number, total_amount), customer:crm_customers(name, phone, address)')
+    .eq('company_id', companyId)
+    .eq('driver_id', driverId)
+    .neq('status', 'Completed');
+
+  if (delErr) throw delErr;
+
+  return {
+    pickups: (pickups || []).map(p => ({
+      id: p.id,
+      type: 'pickup',
+      status: p.status,
+      date: p.pickup_date,
+      customer_name: p.customer?.name || 'Unknown',
+      phone: p.customer?.phone || '',
+      address: p.customer?.address || p.route_details || ''
+    })),
+    deliveries: (deliveries || []).map(d => ({
+      id: d.id,
+      type: 'delivery',
+      status: d.status,
+      date: d.delivery_date,
+      order_number: d.order?.order_number || 'Unknown',
+      amount: d.order?.total_amount || 0,
+      customer_name: d.customer?.name || 'Unknown',
+      phone: d.customer?.phone || '',
+      address: d.customer?.address || d.route_details || ''
+    }))
+  };
+};
+
+export const updateMobileJobStatus = async (
+  companyId: string,
+  jobId: string,
+  jobType: 'pickup' | 'delivery',
+  status: string
+) => {
+  if (jobType === 'pickup') {
+    const { error } = await supabase
+      .from('laundry_pickups')
+      .update({ status })
+      .eq('id', jobId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('laundry_deliveries')
+      .update({ status })
+      .eq('id', jobId);
+    if (error) throw error;
+  }
+};
+
+export const getCustomerMobileOrders = async (companyId: string, customerId: string) => {
+  const { data, error } = await supabase
+    .from('laundry_orders')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+};
+
 

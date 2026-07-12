@@ -11,7 +11,9 @@ import {
   Square,
   Activity,
   AlertCircle,
-  Package
+  Package,
+  QrCode,
+  Terminal
 } from 'lucide-react';
 import { LaundryBatch, LaundryMachine, LaundryOrderItem } from './types';
 import { useAuth } from '../../contexts/AuthContext';
@@ -59,6 +61,10 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
   const [qcDamageFound, setQcDamageFound] = useState(false);
   const [qcComments, setQcComments] = useState('');
   const [savingQc, setSavingQc] = useState(false);
+
+  // Phase 3 Barcode Scanner States
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [scanLogs, setScanLogs] = useState<any[]>([]);
 
   useEffect(() => {
     const loadInventoryData = async () => {
@@ -203,6 +209,52 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
     setSavingQc(false);
   };
 
+  const handleBarcodeScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!barcodeInput.trim()) return;
+    const code = barcodeInput.trim().toUpperCase();
+    setBarcodeInput('');
+
+    const logEntry = {
+      timestamp: new Date().toLocaleTimeString(),
+      code,
+      status: 'Success',
+      message: ''
+    };
+
+    try {
+      // 1. Check if it matches a Batch number (e.g. "BAT-XXXX")
+      const matchedBatch = batches.find(b => b.batch_number.toUpperCase() === code);
+      if (matchedBatch) {
+        logEntry.message = `Batch ${matchedBatch.batch_number} recognized. Advancing stage...`;
+        await handleAdvanceStage(matchedBatch);
+        setScanLogs(prev => [logEntry, ...prev]);
+        return;
+      }
+
+      // 2. Check if it matches a pending Order Item ID or code (e.g. ends with or contains)
+      const matchedItem = pendingItems.find(item => 
+        item.id.toUpperCase().endsWith(code) || 
+        item.item_name.toUpperCase().includes(code)
+      );
+      if (matchedItem) {
+        logEntry.message = `Garment "${matchedItem.item_name}" scanned. Toggled selection.`;
+        toggleSelectItem(matchedItem.id);
+        setScanLogs(prev => [logEntry, ...prev]);
+        return;
+      }
+
+      // 3. Fallback: unrecognised code
+      logEntry.status = 'Warning';
+      logEntry.message = `Unknown barcode syntax. No matching active batch or pending garment.`;
+      setScanLogs(prev => [logEntry, ...prev]);
+    } catch (err: any) {
+      logEntry.status = 'Error';
+      logEntry.message = `Process failed: ${err.message}`;
+      setScanLogs(prev => [logEntry, ...prev]);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Upper Grid */}
@@ -280,6 +332,58 @@ export const ProductionTab: React.FC<ProductionTabProps> = ({
               );
             })
           )}
+
+          {/* Barcode Scanning Simulator Terminal */}
+          <div className="bg-slate-900 text-zinc-300 p-6 rounded-3xl border border-zinc-800 shadow-xl space-y-4 mt-6">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-indigo-400" />
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Garment &amp; Batch Barcode Terminal</h4>
+              </div>
+              <div className="flex items-center gap-1.5 text-[9px] font-mono text-zinc-500">
+                <Terminal className="w-3.5 h-3.5" />
+                <span>ONLINE SIMULATION</span>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-zinc-400 leading-relaxed">
+              Scan batch barcodes (e.g. <span className="font-mono text-zinc-300 bg-zinc-800 px-1 py-0.5 rounded">BAT-001</span>) to advance production cycles, or scan garment tag codes (e.g. keywords from pending list) to auto-select/sort them.
+            </p>
+
+            <form onSubmit={handleBarcodeScan} className="flex gap-2">
+              <input
+                type="text"
+                value={barcodeInput}
+                onChange={e => setBarcodeInput(e.target.value)}
+                placeholder="Scan or type barcode (e.g. BAT-001, Shirt, Suit)..."
+                className="flex-1 px-4 py-2.5 text-xs font-mono rounded-xl bg-zinc-950 border border-zinc-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-zinc-200 placeholder-zinc-600"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-95"
+              >
+                Scan Code
+              </button>
+            </form>
+
+            <div className="bg-zinc-950 p-4 rounded-2xl border border-zinc-800/60 max-h-40 overflow-y-auto font-mono text-[9px] space-y-1.5">
+              <span className="text-[8px] text-zinc-500 font-bold block mb-1">SCAN LOG READOUT</span>
+              {scanLogs.length === 0 ? (
+                <div className="text-zinc-600 italic">Terminal awaiting scanner input...</div>
+              ) : (
+                scanLogs.map((log, idx) => (
+                  <div key={idx} className="flex justify-between border-b border-zinc-900/60 pb-1">
+                    <span className="text-zinc-500 font-medium">[{log.timestamp}]</span>
+                    <span className={`font-bold px-1.5 rounded-full ${
+                      log.status === 'Success' ? 'text-emerald-400 bg-emerald-950/20' :
+                      log.status === 'Warning' ? 'text-amber-400 bg-amber-950/20' : 'text-rose-400 bg-rose-950/20'
+                    }`}>{log.code}</span>
+                    <span className="text-zinc-300 text-right flex-1 ml-4 truncate">{log.message}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Right Column */}

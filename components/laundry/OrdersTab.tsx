@@ -14,11 +14,12 @@ import {
   Wallet,
   QrCode,
   Percent,
-  Send
+  Send,
+  Star
 } from 'lucide-react';
 import { LaundryOrder, LaundryOrderItem, LaundryService, LaundryItem, LaundryPricing } from './types';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCustomerWallet, adjustWalletBalance, getCorporateContracts, getOrderItems } from './services';
+import { getCustomerWallet, adjustWalletBalance, getCorporateContracts, getOrderItems, saveLaundryFeedback } from './services';
 
 
 interface OrdersTabProps {
@@ -81,6 +82,13 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
   const [barcodeOrder, setBarcodeOrder] = useState<LaundryOrder | null>(null);
   const [barcodeLines, setBarcodeLines] = useState<LaundryOrderItem[]>([]);
   const [notifications, setNotifications] = useState<{ type: string; message: string; date: string }[]>([]);
+
+  // Phase 3 Feedback States
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [reviewOrder, setReviewOrder] = useState<LaundryOrder | null>(null);
+  const [rating, setRating] = useState(5);
+  const [comments, setComments] = useState('');
+  const [savingReview, setSavingReview] = useState(false);
 
   // Phase 2 Hooks & Methods
   useEffect(() => {
@@ -228,6 +236,29 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
     } catch (err: any) {
       alert('Error updating status: ' + err.message);
     }
+  };
+
+  const handleSaveReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentCompanyId || !reviewOrder) return;
+    setSavingReview(true);
+    try {
+      await saveLaundryFeedback(currentCompanyId, {
+        order_id: reviewOrder.id,
+        customer_id: reviewOrder.customer_id,
+        rating,
+        comments,
+        status: 'Pending Review'
+      });
+      setIsReviewOpen(false);
+      setReviewOrder(null);
+      setRating(5);
+      setComments('');
+      alert('Feedback logged successfully! Thank you for the rating.');
+    } catch (err: any) {
+      alert('Error saving feedback: ' + err.message);
+    }
+    setSavingReview(false);
   };
 
   const handleGenerateInvoiceClick = () => {
@@ -483,6 +514,20 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                     className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-2xl transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95"
                   >
                     <FileText className="w-4 h-4" /> Generate Accounting Invoice
+                  </button>
+                )}
+
+                {selectedOrder.status === 'Completed' && (
+                  <button
+                    onClick={() => {
+                      setReviewOrder(selectedOrder);
+                      setIsReviewOpen(true);
+                      setRating(5);
+                      setComments('');
+                    }}
+                    className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-2xl transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95 mt-2"
+                  >
+                    <Star className="w-4 h-4 fill-white" /> Log Customer Review
                   </button>
                 )}
 
@@ -877,6 +922,76 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                 Send to Printer
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Write Review Modal Dialog */}
+      {isReviewOpen && reviewOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-950 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-2xl w-full max-w-md p-6 overflow-y-auto max-h-[90vh] animate-scale-in text-slate-800 dark:text-white">
+            <h3 className="text-sm font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Star className="w-5 h-5 text-amber-500 fill-amber-500" /> Log Customer Feedback
+            </h3>
+            <span className="text-[10px] font-bold text-slate-500 block mb-4">Order: {reviewOrder.order_number}</span>
+            
+            <form onSubmit={handleSaveReview} className="space-y-4">
+              <div className="space-y-2 text-center py-2 bg-slate-50 dark:bg-zinc-900 rounded-2xl border border-slate-100 dark:border-zinc-800/60">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Service Rating</span>
+                <div className="flex justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(star)}
+                      className="focus:outline-none transition-all active:scale-90"
+                    >
+                      <Star 
+                        className={`w-8 h-8 ${
+                          star <= rating 
+                            ? 'text-amber-500 fill-amber-500' 
+                            : 'text-slate-200 dark:text-zinc-800'
+                        }`} 
+                      />
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[10px] font-extrabold text-slate-500 block">
+                  {rating === 5 ? 'Excellent!' : 
+                   rating === 4 ? 'Good Quality' :
+                   rating === 3 ? 'Average' :
+                   rating === 2 ? 'Needs Improvement' : 'Unsatisfactory'}
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Comments / Suggestions</label>
+                <textarea
+                  required
+                  value={comments}
+                  onChange={e => setComments(e.target.value)}
+                  placeholder="Tell us what the customer liked or any issues reported..."
+                  className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white h-24"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReviewOpen(false)}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-500 text-xs font-bold rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingReview}
+                  className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl transition-all shadow-md"
+                >
+                  {savingReview ? 'Saving...' : 'Submit Feedback'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

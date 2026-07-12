@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, 
   ShoppingBag, 
@@ -7,7 +7,10 @@ import {
   Truck, 
   DollarSign, 
   Activity, 
-  Smile 
+  Smile,
+  Star,
+  Zap,
+  TrendingDown
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -23,6 +26,8 @@ import {
   Pie
 } from 'recharts';
 import { LaundryOrder, LaundryMachine } from './types';
+import { useAuth } from '../../contexts/AuthContext';
+import { getLaundryFeedback, getLaundryVehicles, getFuelLogs } from './services';
 
 interface DashboardTabProps {
   orders: LaundryOrder[];
@@ -30,6 +35,39 @@ interface DashboardTabProps {
 }
 
 export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) => {
+  const { currentCompanyId } = useAuth();
+  const [feedbacks, setFeedbacks] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [totalFuelCost, setTotalFuelCost] = useState(0);
+  const [loadingBI, setLoadingBI] = useState(false);
+
+  useEffect(() => {
+    const fetchBIData = async () => {
+      if (!currentCompanyId) return;
+      setLoadingBI(true);
+      try {
+        const [feedbackData, vehicleData] = await Promise.all([
+          getLaundryFeedback(currentCompanyId),
+          getLaundryVehicles(currentCompanyId)
+        ]);
+        setFeedbacks(feedbackData);
+        setVehicles(vehicleData);
+
+        // Fetch fuel logs for all vehicles to sum total fuel cost
+        let fuelSum = 0;
+        for (const veh of vehicleData) {
+          const logs = await getFuelLogs(currentCompanyId, veh.id);
+          fuelSum += logs.reduce((sum: number, l: any) => sum + Number(l.cost), 0);
+        }
+        setTotalFuelCost(fuelSum);
+      } catch (err) {
+        console.error('Error fetching BI data:', err);
+      }
+      setLoadingBI(false);
+    };
+    fetchBIData();
+  }, [currentCompanyId]);
+
   // Aggregate KPIs
   const todayStr = new Date().toISOString().split('T')[0];
   
@@ -205,9 +243,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
         </div>
       </div>
 
-      {/* Bottom Row: Machine Utilisation & Branch Status */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Machine Status */}
+      {/* Bottom Row: BI Analytics, Machinery, and Leaderboards */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Machine Utilisation Card */}
         <div className="bg-white dark:bg-zinc-950 p-6 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-sm space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Machine Operations</h3>
@@ -227,7 +265,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
                 <div key={m.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/50 dark:bg-zinc-900/50 border border-slate-100/50 dark:border-zinc-800/50">
                   <div>
                     <span className="text-xs font-bold text-slate-800 dark:text-white block">{m.name}</span>
-                    <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">{m.code} • Capacity: {m.capacity || 'N/A'}</span>
+                    <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">{m.code} • Cap: {m.capacity || 'N/A'}</span>
                   </div>
                   <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${statusColors[m.status] || 'bg-slate-400'}`}>
                     {m.status}
@@ -238,18 +276,87 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
           </div>
         </div>
 
-        {/* Satisfaction / Branch status */}
+        {/* BI Profitability Card */}
+        <div className="bg-white dark:bg-zinc-950 p-6 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-sm space-y-4">
+          <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">BI Profitability Breakdown</h3>
+          
+          {(() => {
+            const laborCost = totalRevenue * 0.25;
+            const utilityCost = totalRevenue * 0.15;
+            const totalExpenses = totalFuelCost + laborCost + utilityCost;
+            const netProfit = Math.max(0, totalRevenue - totalExpenses);
+            const margin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+            const profitChartData = [
+              { name: 'Revenue', Amount: Number(totalRevenue.toFixed(2)) },
+              { name: 'Expenses', Amount: Number(totalExpenses.toFixed(2)) },
+              { name: 'Net Profit', Amount: Number(netProfit.toFixed(2)) }
+            ];
+
+            return (
+              <div className="space-y-4">
+                <div className="h-32">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={profitChartData}>
+                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} />
+                      <Tooltip formatter={(value) => [`QAR ${value}`, '']} />
+                      <Bar dataKey="Amount" radius={[8, 8, 0, 0]}>
+                        <Cell fill="#6366f1" />
+                        <Cell fill="#ef4444" />
+                        <Cell fill="#10b981" />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-500">
+                  <div className="p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-xl">
+                    <span className="block text-[8px] uppercase text-slate-400 font-bold">Fuel Expenses</span>
+                    <span className="text-slate-800 dark:text-white font-extrabold">QAR {totalFuelCost.toFixed(2)}</span>
+                  </div>
+                  <div className="p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-xl">
+                    <span className="block text-[8px] uppercase text-slate-400 font-bold">Profit Margin</span>
+                    <span className="text-emerald-500 font-extrabold flex items-center gap-0.5">
+                      <TrendingUp className="w-3 h-3" /> {margin.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Customer Experience Reviews List */}
         <div className="bg-white dark:bg-zinc-950 p-6 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-sm space-y-4 flex flex-col justify-between">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Customer Experience</h3>
-            <Smile className="w-5 h-5 text-indigo-500" />
-          </div>
-          <div className="flex-1 flex flex-col items-center justify-center py-6 text-center space-y-2">
-            <div className="p-4 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 rounded-full">
-              <Smile className="w-10 h-10" />
+          <div className="space-y-4 flex-1">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Recent Reviews &amp; Feedback</h3>
+            
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {feedbacks.length === 0 ? (
+                <div className="text-[10px] text-slate-400 italic text-center py-6">No customer feedback logged.</div>
+              ) : (
+                feedbacks.slice(0, 3).map((f, idx) => (
+                  <div key={f.id || idx} className="p-2.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800/60 rounded-2xl text-[10px] font-semibold">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-slate-800 dark:text-white font-bold">{f.customer_name}</span>
+                      <div className="flex items-center gap-0.5">
+                        {[...Array(5)].map((_, i) => (
+                          <Star 
+                            key={i} 
+                            className={`w-3 h-3 ${
+                              i < f.rating 
+                                ? 'text-amber-500 fill-amber-500' 
+                                : 'text-slate-200 dark:text-zinc-800'
+                            }`} 
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-slate-500 font-medium leading-relaxed italic">"{f.comments}"</p>
+                  </div>
+                ))
+              )}
             </div>
-            <h4 className="text-xl font-bold text-slate-800 dark:text-white">96% Satisfaction</h4>
-            <p className="text-xs text-slate-400 max-w-xs">Based on simulated operational SLA benchmarks and delivery times recorded.</p>
           </div>
         </div>
       </div>

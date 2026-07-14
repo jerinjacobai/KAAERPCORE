@@ -45,6 +45,7 @@ type TabId = 'dashboard' | 'orders' | 'production' | 'logistics' | 'masters' | '
 export const LaundryDashboard: React.FC = () => {
   const { currentCompanyId } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   
   // Data States
   const [orders, setOrders] = useState<LaundryOrder[]>([]);
@@ -242,9 +243,21 @@ export const LaundryDashboard: React.FC = () => {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">
-            <TrendingUp className="w-4 h-4 text-sky-500 animate-pulse" />
-            <span>Operational Engine Live</span>
+          <div className="flex items-center gap-4">
+            <select
+              value={selectedBranchId}
+              onChange={e => setSelectedBranchId(e.target.value)}
+              className="px-4 py-2 text-xs font-bold rounded-xl border border-slate-250 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="">All Branches</option>
+              {locations.map(loc => (
+                <option key={loc.id} value={loc.id.toString()}>{loc.name}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">
+              <TrendingUp className="w-4 h-4 text-sky-500 animate-pulse" />
+              <span>Operational Engine Live</span>
+            </div>
           </div>
         </div>
 
@@ -320,13 +333,15 @@ export const LaundryDashboard: React.FC = () => {
           <div className="p-6 bg-slate-50/50 dark:bg-zinc-900/10">
             {activeTab === 'dashboard' && (
               <DashboardTab 
-                orders={orders} 
-                machines={machines} 
+                orders={selectedBranchId ? orders.filter(o => o.branch_id?.toString() === selectedBranchId) : orders} 
+                machines={selectedBranchId ? machines.filter(m => (m as any).branch_id?.toString() === selectedBranchId) : machines} 
+                locations={locations}
+                selectedBranchId={selectedBranchId}
               />
             )}
             {activeTab === 'orders' && (
               <OrdersTab
-                orders={orders}
+                orders={selectedBranchId ? orders.filter(o => o.branch_id?.toString() === selectedBranchId) : orders}
                 items={items}
                 services={services}
                 pricing={pricing}
@@ -341,17 +356,26 @@ export const LaundryDashboard: React.FC = () => {
             {activeTab === 'production' && (
               <ProductionTab
                 batches={batches}
-                machines={machines}
+                machines={selectedBranchId ? machines.filter(m => (m as any).branch_id?.toString() === selectedBranchId) : machines}
                 employees={employees}
-                pendingItems={orderLines}
+                pendingItems={selectedBranchId ? orderLines.filter(item => {
+                  const matchingOrder = orders.find(o => o.order_number === item.order_number);
+                  return matchingOrder?.branch_id?.toString() === selectedBranchId;
+                }) : orderLines}
                 onCreateBatch={handleCreateBatch}
                 onUpdateBatchStage={handleUpdateBatchStage}
               />
             )}
             {activeTab === 'logistics' && (
               <PickupDeliveryTab
-                pickups={pickups}
-                deliveries={deliveries}
+                pickups={selectedBranchId ? pickups.filter(p => {
+                  const matchingOrder = orders.find(o => o.id === p.order_id);
+                  return matchingOrder?.branch_id?.toString() === selectedBranchId;
+                }) : pickups}
+                deliveries={selectedBranchId ? deliveries.filter(d => {
+                  const matchingOrder = orders.find(o => o.id === d.order_id);
+                  return matchingOrder?.branch_id?.toString() === selectedBranchId;
+                }) : deliveries}
                 employees={employees}
                 onAssignJob={handleAssignJob}
                 onCompleteJob={handleCompleteJob}
@@ -364,6 +388,7 @@ export const LaundryDashboard: React.FC = () => {
                 machines={machines}
                 pricing={pricing}
                 customers={customers}
+                locations={locations}
                 onSaveService={handleSaveService}
                 onSaveItem={handleSaveItem}
                 onSaveMachine={handleSaveMachine}

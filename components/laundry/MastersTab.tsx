@@ -23,6 +23,7 @@ interface MastersTabProps {
   machines: LaundryMachine[];
   pricing: LaundryPricing[];
   customers: { id: string; name: string }[];
+  locations: { id: string; name: string }[];
   onSaveService: (service: Partial<LaundryService>) => Promise<void>;
   onSaveItem: (item: Partial<LaundryItem>) => Promise<void>;
   onSaveMachine: (machine: Partial<LaundryMachine>) => Promise<void>;
@@ -35,6 +36,7 @@ export const MastersTab: React.FC<MastersTabProps> = ({
   machines,
   pricing,
   customers,
+  locations,
   onSaveService,
   onSaveItem,
   onSaveMachine,
@@ -46,8 +48,8 @@ export const MastersTab: React.FC<MastersTabProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [serviceForm, setServiceForm] = useState<Partial<LaundryService>>({ name: '', code: '', description: '', category: 'Standard' });
   const [itemForm, setItemForm] = useState<Partial<LaundryItem>>({ name: '', code: '', category: 'Apparel' });
-  const [machineForm, setMachineForm] = useState<Partial<LaundryMachine>>({ name: '', code: '', type: 'Washer', capacity: '', status: 'Idle' });
-  const [pricingForm, setPricingForm] = useState<Partial<LaundryPricing>>({ item_id: '', service_id: '', unit_price: 0, express_price: 0 });
+  const [machineForm, setMachineForm] = useState<Partial<LaundryMachine> & { branch_id?: string }>({ name: '', code: '', type: 'Washer', capacity: '', status: 'Idle', branch_id: '' });
+  const [pricingForm, setPricingForm] = useState<Partial<LaundryPricing> & { branch_id?: string }>({ item_id: '', service_id: '', unit_price: 0, express_price: 0, branch_id: '' });
 
   // Phase 2 Masters States
   const { currentCompanyId } = useAuth();
@@ -658,6 +660,19 @@ export const MastersTab: React.FC<MastersTabProps> = ({
                       className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
                     />
                   </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assigned Branch</label>
+                    <select
+                      value={machineForm.branch_id || ''}
+                      onChange={e => setMachineForm({ ...machineForm, branch_id: e.target.value })}
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    >
+                      <option value="">Global / All Branches</option>
+                      {locations.map(loc => (
+                        <option key={loc.id} value={loc.id.toString()}>{loc.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </>
               )}
 
@@ -716,6 +731,19 @@ export const MastersTab: React.FC<MastersTabProps> = ({
                         className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
                       />
                     </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assigned Branch (Optional)</label>
+                    <select
+                      value={pricingForm.branch_id || ''}
+                      onChange={e => setPricingForm({ ...pricingForm, branch_id: e.target.value })}
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    >
+                      <option value="">Global / All Branches</option>
+                      {locations.map(loc => (
+                        <option key={loc.id} value={loc.id.toString()}>{loc.name}</option>
+                      ))}
+                    </select>
                   </div>
                 </>
               )}

@@ -32,12 +32,15 @@ import { getLaundryFeedback, getLaundryVehicles, getFuelLogs } from './services'
 interface DashboardTabProps {
   orders: LaundryOrder[];
   machines: LaundryMachine[];
+  locations: { id: string; name: string }[];
+  selectedBranchId: string;
 }
 
-export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) => {
+export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines, locations, selectedBranchId }) => {
   const { currentCompanyId } = useAuth();
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
+  const [vehicleFuelSums, setVehicleFuelSums] = useState<Record<string, number>>({});
   const [totalFuelCost, setTotalFuelCost] = useState(0);
   const [loadingBI, setLoadingBI] = useState(false);
 
@@ -54,11 +57,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
         setVehicles(vehicleData);
 
         // Fetch fuel logs for all vehicles to sum total fuel cost
+        const fuelSums: Record<string, number> = {};
         let fuelSum = 0;
         for (const veh of vehicleData) {
           const logs = await getFuelLogs(currentCompanyId, veh.id);
-          fuelSum += logs.reduce((sum: number, l: any) => sum + Number(l.cost), 0);
+          const vSum = logs.reduce((sum: number, l: any) => sum + Number(l.cost), 0);
+          fuelSums[veh.id] = vSum;
+          fuelSum += vSum;
         }
+        setVehicleFuelSums(fuelSums);
         setTotalFuelCost(fuelSum);
       } catch (err) {
         console.error('Error fetching BI data:', err);
@@ -68,18 +75,42 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
     fetchBIData();
   }, [currentCompanyId]);
 
+  // Branch Filtering Logic
+  const filteredOrders = selectedBranchId
+    ? orders.filter(o => o.branch_id?.toString() === selectedBranchId)
+    : orders;
+
+  const filteredMachines = selectedBranchId
+    ? machines.filter(m => (m as any).branch_id?.toString() === selectedBranchId)
+    : machines;
+
+  const filteredVehicles = selectedBranchId
+    ? vehicles.filter(v => (v as any).branch_id?.toString() === selectedBranchId)
+    : vehicles;
+
+  const activeFuelCost = selectedBranchId
+    ? filteredVehicles.reduce((sum, v) => sum + (vehicleFuelSums[v.id] || 0), 0)
+    : totalFuelCost;
+
+  const filteredFeedbacks = selectedBranchId
+    ? feedbacks.filter(f => {
+        const matchingOrder = orders.find(o => o.id === f.order_id);
+        return matchingOrder?.branch_id?.toString() === selectedBranchId;
+      })
+    : feedbacks;
+
   // Aggregate KPIs
   const todayStr = new Date().toISOString().split('T')[0];
   
-  const todayOrders = orders.filter(o => o.created_at.startsWith(todayStr));
-  const pendingPickups = orders.filter(o => o.status === 'Pickup');
-  const processing = orders.filter(o => ['Sorting', 'Tagging', 'Production Batch', 'Washing', 'Drying', 'Ironing', 'Quality', 'Packing'].includes(o.status));
-  const ready = orders.filter(o => o.status === 'Storage');
-  const delivery = orders.filter(o => ['Delivery Assignment', 'Delivery'].includes(o.status));
-  const completed = orders.filter(o => o.status === 'Completed');
+  const todayOrders = filteredOrders.filter(o => o.created_at.startsWith(todayStr));
+  const pendingPickups = filteredOrders.filter(o => o.status === 'Pickup');
+  const processing = filteredOrders.filter(o => ['Sorting', 'Tagging', 'Production Batch', 'Washing', 'Drying', 'Ironing', 'Quality', 'Packing'].includes(o.status));
+  const ready = filteredOrders.filter(o => o.status === 'Storage');
+  const delivery = filteredOrders.filter(o => ['Delivery Assignment', 'Delivery'].includes(o.status));
+  const completed = filteredOrders.filter(o => o.status === 'Completed');
   
-  const totalRevenue = orders.filter(o => o.status !== 'Cancelled').reduce((acc, o) => acc + Number(o.total_amount), 0);
-  const pendingPayments = orders.filter(o => o.payment_status !== 'Paid' && o.status !== 'Cancelled').reduce((acc, o) => acc + Number(o.total_amount), 0);
+  const totalRevenue = filteredOrders.filter(o => o.status !== 'Cancelled').reduce((acc, o) => acc + Number(o.total_amount), 0);
+  const pendingPayments = filteredOrders.filter(o => o.payment_status !== 'Paid' && o.status !== 'Cancelled').reduce((acc, o) => acc + Number(o.total_amount), 0);
 
   // Group orders by date for chart (last 7 days)
   const last7Days = Array.from({ length: 7 }).map((_, i) => {
@@ -89,7 +120,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
   }).reverse();
 
   const chartData = last7Days.map(date => {
-    const dayOrders = orders.filter(o => o.created_at.startsWith(date));
+    const dayOrders = filteredOrders.filter(o => o.created_at.startsWith(date));
     const dayRevenue = dayOrders.filter(o => o.status !== 'Cancelled').reduce((acc, o) => acc + Number(o.total_amount), 0);
     return {
       date: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
@@ -100,16 +131,16 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
 
   // Machine breakdown chart data
   const machineStatusData = [
-    { name: 'Idle', value: machines.filter(m => m.status === 'Idle').length, color: '#38bdf8' },
-    { name: 'Running', value: machines.filter(m => m.status === 'Running').length, color: '#10b981' },
-    { name: 'Maintenance', value: machines.filter(m => m.status === 'Maintenance').length, color: '#f59e0b' },
-    { name: 'Breakdown', value: machines.filter(m => m.status === 'Breakdown').length, color: '#ef4444' }
+    { name: 'Idle', value: filteredMachines.filter(m => m.status === 'Idle').length, color: '#38bdf8' },
+    { name: 'Running', value: filteredMachines.filter(m => m.status === 'Running').length, color: '#10b981' },
+    { name: 'Maintenance', value: filteredMachines.filter(m => m.status === 'Maintenance').length, color: '#f59e0b' },
+    { name: 'Breakdown', value: filteredMachines.filter(m => m.status === 'Breakdown').length, color: '#ef4444' }
   ].filter(d => d.value > 0);
 
   // Channel distribution data
   const channels = ['Walk-in', 'Corporate', 'Hotel', 'Hospital', 'Online', 'WhatsApp', 'Phone'];
   const channelData = channels.map(channel => {
-    const count = orders.filter(o => o.channel === channel).length;
+    const count = filteredOrders.filter(o => o.channel === channel).length;
     return { name: channel, value: count };
   }).filter(c => c.value > 0);
 
@@ -250,29 +281,33 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Machine Operations</h3>
             <span className="text-xs px-2 py-0.5 rounded-full bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 text-slate-400 dark:text-zinc-500 font-medium">
-              {machines.length} Total
+              {filteredMachines.length} Total
             </span>
           </div>
           <div className="space-y-3">
-            {machines.slice(0, 4).map(m => {
-              const statusColors = {
-                Idle: 'bg-sky-500 text-white',
-                Running: 'bg-emerald-500 text-white',
-                Maintenance: 'bg-amber-500 text-white',
-                Breakdown: 'bg-rose-500 text-white'
-              };
-              return (
-                <div key={m.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/50 dark:bg-zinc-900/50 border border-slate-100/50 dark:border-zinc-800/50">
-                  <div>
-                    <span className="text-xs font-bold text-slate-800 dark:text-white block">{m.name}</span>
-                    <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">{m.code} • Cap: {m.capacity || 'N/A'}</span>
+            {filteredMachines.length === 0 ? (
+              <div className="text-[10px] text-slate-400 italic text-center py-6">No machines registered at this branch.</div>
+            ) : (
+              filteredMachines.slice(0, 4).map(m => {
+                const statusColors = {
+                  Idle: 'bg-sky-500 text-white',
+                  Running: 'bg-emerald-500 text-white',
+                  Maintenance: 'bg-amber-500 text-white',
+                  Breakdown: 'bg-rose-500 text-white'
+                };
+                return (
+                  <div key={m.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/50 dark:bg-zinc-900/50 border border-slate-100/50 dark:border-zinc-800/50">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-white block">{m.name}</span>
+                      <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">{m.code} • Cap: {m.capacity || 'N/A'}</span>
+                    </div>
+                    <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${statusColors[m.status] || 'bg-slate-400'}`}>
+                      {m.status}
+                    </span>
                   </div>
-                  <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${statusColors[m.status] || 'bg-slate-400'}`}>
-                    {m.status}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -283,7 +318,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
           {(() => {
             const laborCost = totalRevenue * 0.25;
             const utilityCost = totalRevenue * 0.15;
-            const totalExpenses = totalFuelCost + laborCost + utilityCost;
+            const totalExpenses = activeFuelCost + laborCost + utilityCost;
             const netProfit = Math.max(0, totalRevenue - totalExpenses);
             const margin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
@@ -312,12 +347,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
                 <div className="grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-500">
                   <div className="p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-xl">
                     <span className="block text-[8px] uppercase text-slate-400 font-bold">Fuel Expenses</span>
-                    <span className="text-slate-800 dark:text-white font-extrabold">QAR {totalFuelCost.toFixed(2)}</span>
+                    <span className="text-slate-800 dark:text-white font-extrabold">QAR {activeFuelCost.toFixed(2)}</span>
                   </div>
                   <div className="p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-xl">
                     <span className="block text-[8px] uppercase text-slate-400 font-bold">Profit Margin</span>
                     <span className="text-emerald-500 font-extrabold flex items-center gap-0.5">
-                      <TrendingUp className="w-3 h-3" /> {margin.toFixed(1)}%
+                      <TrendingUp className="w-3.5 h-3.5" /> {margin.toFixed(1)}%
                     </span>
                   </div>
                 </div>
@@ -332,10 +367,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
             <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Recent Reviews &amp; Feedback</h3>
             
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {feedbacks.length === 0 ? (
+              {filteredFeedbacks.length === 0 ? (
                 <div className="text-[10px] text-slate-400 italic text-center py-6">No customer feedback logged.</div>
               ) : (
-                feedbacks.slice(0, 3).map((f, idx) => (
+                filteredFeedbacks.slice(0, 3).map((f, idx) => (
                   <div key={f.id || idx} className="p-2.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800/60 rounded-2xl text-[10px] font-semibold">
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-slate-800 dark:text-white font-bold">{f.customer_name}</span>
@@ -343,7 +378,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ orders, machines }) 
                         {[...Array(5)].map((_, i) => (
                           <Star 
                             key={i} 
-                            className={`w-3 h-3 ${
+                            className={`w-3.5 h-3.5 ${
                               i < f.rating 
                                 ? 'text-amber-500 fill-amber-500' 
                                 : 'text-slate-200 dark:text-zinc-800'

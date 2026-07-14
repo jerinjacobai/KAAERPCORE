@@ -147,7 +147,8 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
   };
 
   const handlePricingLookup = (itemId: string, serviceId: string): number => {
-    const rate = pricing.find(p => p.item_id === itemId && p.service_id === serviceId);
+    const rate = pricing.find(p => p.item_id === itemId && p.service_id === serviceId && (p as any).branch_id?.toString() === branch_id)
+      || pricing.find(p => p.item_id === itemId && p.service_id === serviceId && !(p as any).branch_id);
     if (!rate) return 0;
     return priority === 'Express' || priority === 'Urgent' ? Number(rate.express_price) : Number(rate.unit_price);
   };

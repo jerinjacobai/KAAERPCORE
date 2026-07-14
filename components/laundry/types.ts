@@ -28,6 +28,7 @@ export interface LaundryPricing {
   unit_price: number;
   express_price: number;
   status: string;
+  branch_id?: string;
   // Joined fields
   item?: LaundryItem;
   service?: LaundryService;
@@ -55,6 +56,7 @@ export interface LaundryMachine {
   capacity?: string;
   utilization: number;
   status: 'Idle' | 'Running' | 'Maintenance' | 'Breakdown';
+  branch_id?: string;
 }
 
 export interface LaundryOrder {

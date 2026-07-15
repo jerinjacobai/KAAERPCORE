@@ -110,6 +110,7 @@ export interface LaundryOrder {
   room_no?: string;
   building_no?: string;
   client_mobile?: string;
+  staff_employee_name?: string;
   // Joined fields
   customer_name?: string;
   branch_name?: string;

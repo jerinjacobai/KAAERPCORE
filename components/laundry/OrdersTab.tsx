@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { LaundryOrder, LaundryOrderItem, LaundryService, LaundryItem, LaundryPricing, LaundryClientEmployee } from './types';
 import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 import { 
   getCustomerWallet, 
   adjustWalletBalance, 
@@ -87,6 +88,8 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
   const [roomNo, setRoomNo] = useState('');
   const [buildingNo, setBuildingNo] = useState('');
   const [clientMobile, setClientMobile] = useState('');
+  const [staffEmployees, setStaffEmployees] = useState<{ id: string, name: string, role: string }[]>([]);
+  const [staffEmployeeName, setStaffEmployeeName] = useState('');
 
   const initialPaperGrid = [
     { name: 'Shirt', code: 'SHIRT', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
@@ -176,6 +179,26 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
     };
     fetchEmployees();
   }, [customer_id, currentCompanyId, isNewOpen]);
+
+  useEffect(() => {
+    const fetchStaffList = async () => {
+      if (!currentCompanyId) return;
+      try {
+        const { data, error } = await supabase
+          .from('employees')
+          .select('id, name, role')
+          .eq('company_id', currentCompanyId)
+          .order('name');
+        if (error) throw error;
+        setStaffEmployees(data || []);
+      } catch (err) {
+        console.error('Error fetching staff list:', err);
+      }
+    };
+    if (isNewOpen) {
+      fetchStaffList();
+    }
+  }, [currentCompanyId, isNewOpen]);
 
   const addMockNotification = (type: string, message: string) => {
     const newLog = {
@@ -346,6 +369,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
         orderPayload.room_no = roomNo || null;
         orderPayload.building_no = buildingNo || null;
         orderPayload.client_mobile = clientMobile || null;
+        orderPayload.staff_employee_name = staffEmployeeName || null;
       }
 
       await onCreateOrder(orderPayload, finalOrderLines);
@@ -371,6 +395,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
       setRoomNo('');
       setBuildingNo('');
       setClientMobile('');
+      setStaffEmployeeName('');
       setPaperGrid(initialPaperGrid);
     } catch (err: any) {
       alert('Error creating order: ' + err.message);
@@ -513,11 +538,11 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
             <span>${order.customer_name}</span>
           </div>
           <div class="meta-row">
-            <span class="meta-label">Employee Name:</span>
+            <span class="meta-label">Tenant Name:</span>
             <span>${order.client_employee_name || 'N/A'}</span>
           </div>
           <div class="meta-row">
-            <span class="meta-label">Employee No:</span>
+            <span class="meta-label">Tenant Employee No:</span>
             <span>${order.client_employee_no || 'N/A'}</span>
           </div>
           <div class="meta-row">
@@ -528,6 +553,12 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
             <span class="meta-label">Mobile:</span>
             <span>${order.client_mobile || 'N/A'}</span>
           </div>
+          ${order.staff_employee_name ? `
+          <div class="meta-row">
+            <span class="meta-label">Served By (Staff):</span>
+            <span>${order.staff_employee_name}</span>
+          </div>
+          ` : ''}
           
           <table class="grid-table">
             <thead>
@@ -754,6 +785,14 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                       <span className="font-bold text-slate-700 dark:text-slate-200">{selectedOrder.client_mobile || 'N/A'}</span>
                     </div>
                   </>
+                )}
+                {selectedOrder.staff_employee_name && (
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400">Served By Staff</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {selectedOrder.staff_employee_name}
+                    </span>
+                  </div>
                 )}
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-slate-400">Channel</span>
@@ -1108,6 +1147,20 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                         className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Served By (Company Laundry Staff)</label>
+                    <select
+                      value={staffEmployeeName}
+                      onChange={e => setStaffEmployeeName(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="">-- Choose Staff Member --</option>
+                      {staffEmployees.map(emp => (
+                        <option key={emp.id} value={emp.name}>{emp.name} ({emp.role || 'Operator'})</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="space-y-2 pt-2">

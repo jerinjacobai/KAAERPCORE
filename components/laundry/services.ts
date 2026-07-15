@@ -8,7 +8,9 @@ import {
   LaundryService,
   LaundryItem,
   LaundryPricing,
-  LaundryMachine
+  LaundryMachine,
+  LaundryCustomer,
+  LaundryClientEmployee
 } from './types';
 
 // ==============================================================================
@@ -20,7 +22,7 @@ export const getLaundryOrders = async (companyId: string): Promise<LaundryOrder[
     .from('laundry_orders')
     .select(`
       *,
-      crm_customers:customer_id(name),
+      laundry_customers:customer_id(name),
       locations:branch_id(name)
     `)
     .eq('company_id', companyId)
@@ -30,7 +32,7 @@ export const getLaundryOrders = async (companyId: string): Promise<LaundryOrder[
   
   return (data || []).map((d: any) => ({
     ...d,
-    customer_name: d.crm_customers?.name || 'Unknown',
+    customer_name: d.laundry_customers?.name || 'Unknown',
     branch_name: d.locations?.name || 'Main Branch'
   }));
 };
@@ -399,7 +401,7 @@ export const getLaundryMasters = async (companyId: string) => {
     supabase.from('laundry_items').select('*').eq('company_id', companyId).order('name'),
     supabase.from('laundry_machines').select('*').eq('company_id', companyId).order('name'),
     supabase.from('laundry_pricing').select(`*, laundry_items(name), laundry_services(name)`).eq('company_id', companyId),
-    supabase.from('crm_customers').select('id, name, customer_type').eq('company_id', companyId).order('name'),
+    supabase.from('laundry_customers').select('id, name, type').eq('company_id', companyId).order('name'),
     supabase.from('employees').select('id, name, role').eq('company_id', companyId).order('name')
   ]);
 
@@ -417,7 +419,7 @@ export const getLaundryMasters = async (companyId: string) => {
       item_name: p.laundry_items?.name || 'Unknown Item',
       service_name: p.laundry_services?.name || 'Unknown Service'
     })),
-    customers: custRes.data || [],
+    customers: (custRes.data || []).map((c: any) => ({ id: c.id, name: c.name, customer_type: c.type })),
     employees: empRes.data || []
   };
 };
@@ -614,7 +616,7 @@ export const adjustWalletBalance = async (
 export const getCorporateContracts = async (companyId: string) => {
   const { data, error } = await supabase
     .from('laundry_contracts')
-    .select('*, customer:crm_customers(name)')
+    .select('*, customer:laundry_customers(name)')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false });
 
@@ -786,7 +788,7 @@ export const addGPSCoordinate = async (companyId: string, coordinate: any) => {
 export const getLaundryFeedback = async (companyId: string) => {
   const { data, error } = await supabase
     .from('laundry_feedback')
-    .select('*, customer:crm_customers(name), order:laundry_orders(order_number)')
+    .select('*, customer:laundry_customers(name), order:laundry_orders(order_number)')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false });
 
@@ -814,7 +816,7 @@ export const getMobileDriverJobs = async (companyId: string, driverId: string) =
   // Fetch pickups
   const { data: pickups, error: pickErr } = await supabase
     .from('laundry_pickups')
-    .select('*, customer:crm_customers(name, phone, address)')
+    .select('*, customer:laundry_customers(name, phone:mobile)')
     .eq('company_id', companyId)
     .eq('driver_id', driverId)
     .neq('status', 'Completed');
@@ -824,7 +826,7 @@ export const getMobileDriverJobs = async (companyId: string, driverId: string) =
   // Fetch deliveries
   const { data: deliveries, error: delErr } = await supabase
     .from('laundry_deliveries')
-    .select('*, order:laundry_orders(order_number, total_amount), customer:crm_customers(name, phone, address)')
+    .select('*, order:laundry_orders(order_number, total_amount), customer:laundry_customers(name, phone:mobile)')
     .eq('company_id', companyId)
     .eq('driver_id', driverId)
     .neq('status', 'Completed');
@@ -839,7 +841,7 @@ export const getMobileDriverJobs = async (companyId: string, driverId: string) =
       date: p.pickup_date,
       customer_name: p.customer?.name || 'Unknown',
       phone: p.customer?.phone || '',
-      address: p.customer?.address || p.route_details || ''
+      address: p.route_details || ''
     })),
     deliveries: (deliveries || []).map(d => ({
       id: d.id,
@@ -850,7 +852,7 @@ export const getMobileDriverJobs = async (companyId: string, driverId: string) =
       amount: d.order?.total_amount || 0,
       customer_name: d.customer?.name || 'Unknown',
       phone: d.customer?.phone || '',
-      address: d.customer?.address || d.route_details || ''
+      address: d.route_details || ''
     }))
   };
 };
@@ -886,6 +888,168 @@ export const getCustomerMobileOrders = async (companyId: string, customerId: str
 
   if (error) throw error;
   return data || [];
+};
+
+// ==============================================================================
+// STANDALONE MASTERS (CUSTOMERS & CLIENT EMPLOYEES)
+// ==============================================================================
+
+export const getLaundryCustomers = async (companyId: string): Promise<LaundryCustomer[]> => {
+  const { data, error } = await supabase
+    .from('laundry_customers')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const saveLaundryCustomer = async (companyId: string, customer: any): Promise<void> => {
+  if (customer.id) {
+    const { error } = await supabase
+      .from('laundry_customers')
+      .update(customer)
+      .eq('id', customer.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('laundry_customers')
+      .insert({ ...customer, company_id: companyId });
+    if (error) throw error;
+  }
+};
+
+export const deleteLaundryCustomer = async (companyId: string, id: string): Promise<void> => {
+  const { error } = await supabase
+    .from('laundry_customers')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+};
+
+export const getLaundryClientEmployees = async (companyId: string): Promise<LaundryClientEmployee[]> => {
+  const { data, error } = await supabase
+    .from('laundry_client_employees')
+    .select('*, customer:laundry_customers(name)')
+    .eq('company_id', companyId)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(d => ({
+    ...d,
+    client_customer_name: d.customer?.name || 'Unknown'
+  }));
+};
+
+export const saveLaundryClientEmployee = async (companyId: string, employee: any): Promise<void> => {
+  if (employee.id) {
+    const { error } = await supabase
+      .from('laundry_client_employees')
+      .update(employee)
+      .eq('id', employee.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('laundry_client_employees')
+      .insert({ ...employee, company_id: companyId });
+    if (error) throw error;
+  }
+};
+
+export const deleteLaundryClientEmployee = async (companyId: string, id: string): Promise<void> => {
+  const { error } = await supabase
+    .from('laundry_client_employees')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+};
+
+export const seedLaundryDemoData = async (companyId: string): Promise<void> => {
+  // 1. Seed standard customers
+  const demoCustomers = [
+    { name: 'QDS Corporates', type: 'Corporate', mobile: '+974 5550 1234', email: 'intake@qds.qa', status: 'Active' },
+    { name: 'Sheraton Doha', type: 'Hotels', mobile: '+974 4485 4444', email: 'laundry@sheraton.com', status: 'Active' },
+    { name: 'Qatar Airways staff', type: 'Corporate', mobile: '+974 4449 6000', email: 'crewlaundry@qatarairways.com.qa', status: 'Active' },
+    { name: 'Jacob Individial', type: 'Individual', mobile: '+974 7777 8888', email: 'jacob@dream11.com', status: 'Active' }
+  ];
+
+  for (const cust of demoCustomers) {
+    const { data } = await supabase
+      .from('laundry_customers')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('name', cust.name)
+      .maybeSingle();
+
+    if (!data) {
+      await supabase
+        .from('laundry_customers')
+        .insert({ ...cust, company_id: companyId });
+    }
+  }
+
+  // Fetch QDS and QA customer IDs
+  const { data: qdsCust } = await supabase
+    .from('laundry_customers')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('name', 'QDS Corporates')
+    .single();
+
+  const { data: qaCust } = await supabase
+    .from('laundry_customers')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('name', 'Qatar Airways staff')
+    .single();
+
+  // 2. Seed client employees
+  if (qdsCust) {
+    const qdsEmployees = [
+      { name: 'Thennarasu', employee_no: '24535', mobile: '+974 5551 2345', room_no: '17', building_no: '120', client_customer_id: qdsCust.id },
+      { name: 'Jerin Jacob', employee_no: '24670', mobile: '+974 5557 8901', room_no: '22', building_no: '120', client_customer_id: qdsCust.id }
+    ];
+
+    for (const emp of qdsEmployees) {
+      const { data } = await supabase
+        .from('laundry_client_employees')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('client_customer_id', qdsCust.id)
+        .eq('employee_no', emp.employee_no)
+        .maybeSingle();
+
+      if (!data) {
+        await supabase
+          .from('laundry_client_employees')
+          .insert({ ...emp, company_id: companyId });
+      }
+    }
+  }
+
+  if (qaCust) {
+    const qaEmployees = [
+      { name: 'Jacob Mathew', employee_no: '10892', mobile: '+974 5554 3210', room_no: '104', building_no: '4', client_customer_id: qaCust.id },
+      { name: 'Nidhin Joseph', employee_no: '10905', mobile: '+974 5558 8776', room_no: '202', building_no: '6', client_customer_id: qaCust.id }
+    ];
+
+    for (const emp of qaEmployees) {
+      const { data } = await supabase
+        .from('laundry_client_employees')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('client_customer_id', qaCust.id)
+        .eq('employee_no', emp.employee_no)
+        .maybeSingle();
+
+      if (!data) {
+        await supabase
+          .from('laundry_client_employees')
+          .insert({ ...emp, company_id: companyId });
+      }
+    }
+  }
 };
 
 

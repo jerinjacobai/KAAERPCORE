@@ -17,9 +17,16 @@ import {
   Send,
   Star
 } from 'lucide-react';
-import { LaundryOrder, LaundryOrderItem, LaundryService, LaundryItem, LaundryPricing } from './types';
+import { LaundryOrder, LaundryOrderItem, LaundryService, LaundryItem, LaundryPricing, LaundryClientEmployee } from './types';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCustomerWallet, adjustWalletBalance, getCorporateContracts, getOrderItems, saveLaundryFeedback } from './services';
+import { 
+  getCustomerWallet, 
+  adjustWalletBalance, 
+  getCorporateContracts, 
+  getOrderItems, 
+  saveLaundryFeedback,
+  getLaundryClientEmployees
+} from './services';
 
 
 interface OrdersTabProps {
@@ -68,6 +75,33 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
   const [orderLines, setOrderLines] = useState<{ item_id: string; service_id: string; quantity: number; unit_price: number }[]>([
     { item_id: '', service_id: '', quantity: 1, unit_price: 0 }
   ]);
+
+  // Digitized Paper Form grid states
+  const [isPaperMode, setIsPaperMode] = useState(false);
+  const [receiptNo, setReceiptNo] = useState('');
+  const [clientEmployees, setClientEmployees] = useState<LaundryClientEmployee[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [clientEmpName, setClientEmpName] = useState('');
+  const [clientEmpNo, setClientEmpNo] = useState('');
+  const [roomNo, setRoomNo] = useState('');
+  const [buildingNo, setBuildingNo] = useState('');
+  const [clientMobile, setClientMobile] = useState('');
+
+  const initialPaperGrid = [
+    { name: 'Shirt', code: 'SHIRT', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Pant', code: 'PANT', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'T-shirt', code: 'TSHIRT', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Coverall', code: 'COVERALL', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Bedsheet', code: 'BEDSHEET', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Pillow Cover', code: 'PILLOW_COVER', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Short Pant', code: 'SHORT_PANT', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Towel', code: 'TOWEL', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Lungi', code: 'LUNGI', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Kurta', code: 'KURTA', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Blanket', code: 'BLANKET', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' },
+    { name: 'Others', code: 'OTHERS', qty_issued: 0, qty_recv: 0, qty_ret: 0, qty_ack: 0, note: '' }
+  ];
+  const [paperGrid, setPaperGrid] = useState(initialPaperGrid);
 
   // Invoice Dialog
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
@@ -125,6 +159,23 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
     fetchWalletAndContract();
   }, [customer_id, currentCompanyId, contracts]);
 
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      if (!currentCompanyId || !customer_id) {
+        setClientEmployees([]);
+        return;
+      }
+      try {
+        const data = await getLaundryClientEmployees(currentCompanyId);
+        const filtered = data.filter(e => e.client_customer_id === customer_id);
+        setClientEmployees(filtered);
+      } catch (err) {
+        console.error('Error fetching client employees:', err);
+      }
+    };
+    fetchEmployees();
+  }, [customer_id, currentCompanyId, isNewOpen]);
+
   const addMockNotification = (type: string, message: string) => {
     const newLog = {
       type,
@@ -176,15 +227,92 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
     setOrderLines(orderLines.filter((_, i) => i !== index));
   };
 
+  const handleEmployeeSelect = (empId: string) => {
+    setSelectedEmployeeId(empId);
+    if (!empId) {
+      setClientEmpName('');
+      setClientEmpNo('');
+      setRoomNo('');
+      setBuildingNo('');
+      setClientMobile('');
+      return;
+    }
+    const emp = clientEmployees.find(e => e.id === empId);
+    if (emp) {
+      setClientEmpName(emp.name || '');
+      setClientEmpNo(emp.employee_no || '');
+      setRoomNo(emp.room_no || '');
+      setBuildingNo(emp.building_no || '');
+      setClientMobile(emp.mobile || '');
+    }
+  };
+
+  const handlePaperGridChange = (index: number, field: 'qty_issued' | 'qty_recv' | 'qty_ret' | 'qty_ack' | 'note', val: any) => {
+    const updated = [...paperGrid];
+    updated[index] = { ...updated[index], [field]: val };
+    setPaperGrid(updated);
+  };
+
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customer_id) {
       alert('Please select a customer.');
       return;
     }
+
+    let finalOrderLines: any[] = [];
+    let subtotal = 0;
+
+    if (isPaperMode) {
+      // Find default service (Wash & Iron / first available)
+      const defaultService = services.find(s => s.code === 'WSH-IRN') || services[0];
+      if (!defaultService) {
+        alert('No services registered. Please configure services first.');
+        return;
+      }
+
+      // Filter grid rows with items issued > 0
+      const activeRows = paperGrid.filter(row => Number(row.qty_issued) > 0);
+      if (activeRows.length === 0) {
+        alert('Please enter quantity issued for at least one garment row.');
+        return;
+      }
+
+      for (const row of activeRows) {
+        const matchingItem = items.find(i => i.code === row.code) || items.find(i => i.name.toLowerCase() === row.name.toLowerCase());
+        if (!matchingItem) continue;
+
+        const price = handlePricingLookup(matchingItem.id, defaultService.id);
+        const lineTotal = Number(row.qty_issued) * price;
+        subtotal += lineTotal;
+
+        finalOrderLines.push({
+          item_id: matchingItem.id,
+          service_id: defaultService.id,
+          quantity: Number(row.qty_issued),
+          unit_price: price,
+          qty_issued: Number(row.qty_issued),
+          qty_recv: Number(row.qty_recv),
+          qty_ret: Number(row.qty_ret),
+          qty_ack: Number(row.qty_ack),
+          notes: row.note || ''
+        });
+      }
+    } else {
+      subtotal = orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0);
+      finalOrderLines = orderLines.map(l => ({
+        item_id: l.item_id,
+        service_id: l.service_id,
+        quantity: l.quantity,
+        unit_price: l.unit_price,
+        qty_issued: l.quantity,
+        qty_recv: 0,
+        qty_ret: 0,
+        qty_ack: 0,
+        notes: ''
+      }));
+    }
     
-    // Calculate total amount with contract discount
-    const subtotal = orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0);
     const discount = activeContract ? (subtotal * Number(activeContract.discount_percentage)) / 100 : 0;
     const total = subtotal - discount;
 
@@ -194,13 +322,12 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
           alert('Insufficient wallet balance to cover this order.');
           return;
         }
-        // Deduct from wallet
         if (currentCompanyId) {
           await adjustWalletBalance(currentCompanyId, customer_id, total, 'Deduction', `Paid for Laundry Order`);
         }
       }
 
-      await onCreateOrder({
+      const orderPayload: any = {
         customer_id,
         branch_id: branch_id || null,
         channel,
@@ -208,8 +335,19 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
         due_date: due_date || null,
         notes,
         total_amount: total,
-        status: priority === 'Standard' ? 'Order' : 'Pickup' // Express/Urgent orders typically start with Pickup request
-      }, orderLines);
+        status: priority === 'Standard' ? 'Order' : 'Pickup'
+      };
+
+      if (isPaperMode) {
+        orderPayload.receipt_no = receiptNo || null;
+        orderPayload.client_employee_name = clientEmpName || null;
+        orderPayload.client_employee_no = clientEmpNo || null;
+        orderPayload.room_no = roomNo || null;
+        orderPayload.building_no = buildingNo || null;
+        orderPayload.client_mobile = clientMobile || null;
+      }
+
+      await onCreateOrder(orderPayload, finalOrderLines);
       
       const customerName = customers.find(c => c.id === customer_id)?.name || 'Customer';
       addMockNotification('SMS / WhatsApp Alert', `Order intake confirmed for ${customerName}. Total: QAR ${total.toFixed(2)}.`);
@@ -224,6 +362,15 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
       setNotes('');
       setUseWalletPayment(false);
       setOrderLines([{ item_id: '', service_id: '', quantity: 1, unit_price: 0 }]);
+      setIsPaperMode(false);
+      setReceiptNo('');
+      setSelectedEmployeeId('');
+      setClientEmpName('');
+      setClientEmpNo('');
+      setRoomNo('');
+      setBuildingNo('');
+      setClientMobile('');
+      setPaperGrid(initialPaperGrid);
     } catch (err: any) {
       alert('Error creating order: ' + err.message);
     }
@@ -415,6 +562,38 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                   <span className="text-slate-400">Order Number</span>
                   <span className="font-bold text-slate-800 dark:text-white">{selectedOrder.order_number}</span>
                 </div>
+                {selectedOrder.receipt_no && (
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400">Paper Receipt No</span>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500 text-white shadow-sm animate-pulse">
+                      #{selectedOrder.receipt_no}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400">Client Company</span>
+                  <span className="font-bold text-indigo-600 dark:text-indigo-400">{selectedOrder.customer_name}</span>
+                </div>
+                {selectedOrder.client_employee_name && (
+                  <>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Tenant (Employee)</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">
+                        {selectedOrder.client_employee_name} ({selectedOrder.client_employee_no || 'N/A'})
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Bldg / Room No</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">
+                        Bldg {selectedOrder.building_no || 'N/A'} / Room {selectedOrder.room_no || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Mobile No</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">{selectedOrder.client_mobile || 'N/A'}</span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-slate-400">Channel</span>
                   <span className="font-bold text-slate-600 dark:text-slate-300">{selectedOrder.channel}</span>
@@ -433,20 +612,56 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
 
               {/* Items List */}
               <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Garments Log</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Garments Log</span>
                 {isLoadingItems ? (
                   <div className="text-center text-slate-400 text-xs py-4">Loading items...</div>
                 ) : (
                   <div className="space-y-2">
-                    {selectedOrderItems.map(item => (
-                      <div key={item.id} className="flex justify-between items-center p-2 bg-slate-50 dark:bg-zinc-900 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300">
-                        <div>
-                          <span>{item.item_name}</span>
-                          <span className="block text-[9px] text-slate-400 font-medium">{item.service_name} • Qty: {item.quantity}</span>
-                        </div>
-                        <span className="font-bold text-slate-800 dark:text-white">QAR {Number(item.total_price).toFixed(2)}</span>
+                    {selectedOrder.receipt_no ? (
+                      /* Paper Slip grid format */
+                      <div className="border border-slate-100 dark:border-zinc-800/80 rounded-2xl overflow-hidden shadow-sm bg-slate-50/50 dark:bg-zinc-900/30">
+                        <table className="w-full text-left border-collapse text-[10px] font-semibold">
+                          <thead>
+                            <tr className="bg-slate-100 dark:bg-zinc-900/80 border-b border-slate-200 dark:border-zinc-800 text-slate-500 text-[9px] uppercase font-bold">
+                              <th className="px-3 py-2">Garment</th>
+                              <th className="px-1.5 py-2 text-center">ISD</th>
+                              <th className="px-1.5 py-2 text-center">RCV</th>
+                              <th className="px-1.5 py-2 text-center">RET</th>
+                              <th className="px-1.5 py-2 text-center">ACK</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50 text-slate-700 dark:text-slate-300">
+                            {selectedOrderItems.map(item => (
+                              <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/50">
+                                <td className="px-3 py-1.5 font-bold">
+                                  {item.item_name}
+                                  {item.notes && (
+                                    <span className="block text-[8px] text-slate-400 font-medium font-normal italic">
+                                      Note: {item.notes}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-center font-bold text-indigo-500">{item.qty_issued || 0}</td>
+                                <td className="px-1.5 py-1.5 text-center font-bold text-slate-600">{item.qty_recv || 0}</td>
+                                <td className="px-1.5 py-1.5 text-center font-bold text-emerald-600">{item.qty_ret || 0}</td>
+                                <td className="px-1.5 py-1.5 text-center font-bold text-amber-600">{item.qty_ack || 0}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    ))}
+                    ) : (
+                      /* Standard listing */
+                      selectedOrderItems.map(item => (
+                        <div key={item.id} className="flex justify-between items-center p-2 bg-slate-50 dark:bg-zinc-900 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300">
+                          <div>
+                            <span>{item.item_name}</span>
+                            <span className="block text-[9px] text-slate-400 font-medium">{item.service_name} • Qty: {item.quantity}</span>
+                          </div>
+                          <span className="font-bold text-slate-800 dark:text-white">QAR {Number(item.total_price).toFixed(2)}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -573,13 +788,25 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
       {/* New Order Modal Dialog */}
       {isNewOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-950 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-2xl w-full max-w-2xl p-6 overflow-y-auto max-h-[90vh] animate-slide-up">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-4">Create Laundry Order</h3>
+          <div className={`bg-white dark:bg-zinc-950 rounded-3xl border border-slate-100 dark:border-zinc-800 shadow-2xl w-full p-6 overflow-y-auto max-h-[90vh] animate-slide-up transition-all duration-300 ${isPaperMode ? 'max-w-4xl' : 'max-w-2xl'}`}>
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 dark:border-zinc-800">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Create Laundry Order</h3>
+              
+              <label className="flex items-center gap-2 cursor-pointer px-3 py-1 bg-indigo-50/50 dark:bg-zinc-900/30 rounded-xl border border-indigo-100/50 dark:border-zinc-800/80 hover:bg-indigo-50 transition-all select-none">
+                <input
+                  type="checkbox"
+                  checked={isPaperMode}
+                  onChange={e => setIsPaperMode(e.target.checked)}
+                  className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                />
+                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Paper Slip Mode</span>
+              </label>
+            </div>
             
             <form onSubmit={handleCreateOrder} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select CRM Customer</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Client Company</label>
                   <select
                     required
                     value={customer_id}
@@ -621,149 +848,317 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Channel</label>
-                  <select
-                    value={channel}
-                    onChange={e => setChannel(e.target.value)}
-                    className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
-                  >
-                    <option value="Walk-in">Walk-in</option>
-                    <option value="Corporate">Corporate</option>
-                    <option value="Online">Online</option>
-                    <option value="WhatsApp">WhatsApp</option>
-                    <option value="Phone">Phone</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Priority</label>
-                  <select
-                    value={priority}
-                    onChange={e => {
-                      setPriority(e.target.value as any);
-                      // Update pricing on index change
-                      const updated = orderLines.map(l => {
-                        if (l.item_id && l.service_id) {
-                          const rate = pricing.find(p => p.item_id === l.item_id && p.service_id === l.service_id);
-                          const price = e.target.value === 'Express' || e.target.value === 'Urgent' 
-                            ? Number(rate?.express_price || 0) 
-                            : Number(rate?.unit_price || 0);
-                          return { ...l, unit_price: price };
-                        }
-                        return l;
-                      });
-                      setOrderLines(updated);
-                    }}
-                    className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
-                  >
-                    <option value="Standard">Standard</option>
-                    <option value="Express">Express</option>
-                    <option value="Urgent">Urgent</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Due Date</label>
-                  <input
-                    type="date"
-                    value={due_date}
-                    onChange={e => setDueDate(e.target.value)}
-                    className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              {/* Order Lines */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Order Line Items</span>
-                  <button
-                    type="button"
-                    onClick={handleAddLine}
-                    className="text-xs font-bold text-indigo-500 hover:text-indigo-600 transition-colors"
-                  >
-                    + Add Item
-                  </button>
-                </div>
-                
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {orderLines.map((line, idx) => (
-                    <div key={idx} className="flex gap-3 items-end">
-                      <div className="flex-1 space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Garment Type</label>
-                        <select
-                          required
-                          value={line.item_id}
-                          onChange={e => handleLineChange(idx, 'item_id', e.target.value)}
-                          className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50"
-                        >
-                          <option value="">Select garment</option>
-                          {items.map(i => (
-                            <option key={i.id} value={i.id}>{i.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="flex-1 space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Cleaning Service</label>
-                        <select
-                          required
-                          value={line.service_id}
-                          onChange={e => handleLineChange(idx, 'service_id', e.target.value)}
-                          className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50"
-                        >
-                          <option value="">Select service</option>
-                          {services.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="w-16 space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Qty</label>
-                        <input
-                          type="number"
-                          required
-                          min="1"
-                          value={line.quantity}
-                          onChange={e => handleLineChange(idx, 'quantity', Number(e.target.value))}
-                          className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50 text-center"
-                        />
-                      </div>
-
-                      <div className="w-24 space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Price (QAR)</label>
-                        <input
-                          type="text"
-                          readOnly
-                          value={Number(line.unit_price * line.quantity).toFixed(2)}
-                          className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-100 bg-slate-100 text-center text-slate-600"
-                        />
-                      </div>
-
-                      {orderLines.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveLine(idx)}
-                          className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-xl transition-all mb-[1px]"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+              {isPaperMode ? (
+                /* Digitized Paper slip inputs */
+                <div className="space-y-4 bg-slate-50/50 dark:bg-zinc-900/20 p-4 rounded-2xl border border-slate-100 dark:border-zinc-800/80">
+                  <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider flex items-center gap-1 mb-2">
+                    <FileText className="w-3.5 h-3.5" /> Paper Slip Header Information
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Serial Receipt No.</label>
+                      <input
+                        type="text"
+                        required
+                        value={receiptNo}
+                        onChange={e => setReceiptNo(e.target.value)}
+                        placeholder="e.g. 6255"
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      />
                     </div>
-                  ))}
-                </div>
-              </div>
+                    
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Select Registered Tenant</label>
+                      <select
+                        value={selectedEmployeeId}
+                        onChange={e => handleEmployeeSelect(e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="">-- Manual Entry / Select --</option>
+                        {clientEmployees.map(emp => (
+                          <option key={emp.id} value={emp.id}>{emp.name} ({emp.employee_no})</option>
+                        ))}
+                      </select>
+                    </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Order Instructions</label>
-                <textarea
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  placeholder="Special instructions for delicate handling, stains, etc."
-                  className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white h-16"
-                />
-              </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Tenant Name</label>
+                      <input
+                        type="text"
+                        required
+                        value={clientEmpName}
+                        onChange={e => setClientEmpName(e.target.value)}
+                        placeholder="e.g. Thennarasu"
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Employee No.</label>
+                      <input
+                        type="text"
+                        required
+                        value={clientEmpNo}
+                        onChange={e => setClientEmpNo(e.target.value)}
+                        placeholder="e.g. 24535"
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Building No.</label>
+                      <input
+                        type="text"
+                        value={buildingNo}
+                        onChange={e => setBuildingNo(e.target.value)}
+                        placeholder="e.g. 120"
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Room / Flat No.</label>
+                      <input
+                        type="text"
+                        value={roomNo}
+                        onChange={e => setRoomNo(e.target.value)}
+                        placeholder="e.g. 17"
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Mobile Number</label>
+                      <input
+                        type="text"
+                        value={clientMobile}
+                        onChange={e => setClientMobile(e.target.value)}
+                        placeholder="e.g. +974 5551 2345"
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-2">
+                      Garment Count Registry Grid (12 Standard Items)
+                    </div>
+                    
+                    <div className="border border-slate-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm bg-white dark:bg-zinc-950">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">
+                            <th className="px-4 py-2 w-1/4">Garment</th>
+                            <th className="px-2 py-2 text-center w-16">ISSUED</th>
+                            <th className="px-2 py-2 text-center w-16">RECV.</th>
+                            <th className="px-2 py-2 text-center w-16">RET.</th>
+                            <th className="px-2 py-2 text-center w-16">ACK.</th>
+                            <th className="px-4 py-2">Note / Description</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-zinc-800 font-semibold text-slate-700 dark:text-slate-300">
+                          {paperGrid.map((row, index) => (
+                            <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-zinc-900/30">
+                              <td className="px-4 py-1.5 font-bold text-slate-900 dark:text-white">{row.name}</td>
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={row.qty_issued || ''}
+                                  onChange={e => handlePaperGridChange(index, 'qty_issued', Number(e.target.value))}
+                                  placeholder="-"
+                                  className="w-12 px-1 py-1 rounded border border-slate-200 bg-slate-50 text-center font-bold text-slate-800 focus:bg-indigo-50/50 focus:border-indigo-500 focus:outline-none"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={row.qty_recv || ''}
+                                  onChange={e => handlePaperGridChange(index, 'qty_recv', Number(e.target.value))}
+                                  placeholder="-"
+                                  className="w-12 px-1 py-1 rounded border border-slate-200 bg-slate-50 text-center font-bold text-slate-800 focus:bg-indigo-50/50 focus:border-indigo-500 focus:outline-none"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={row.qty_ret || ''}
+                                  onChange={e => handlePaperGridChange(index, 'qty_ret', Number(e.target.value))}
+                                  placeholder="-"
+                                  className="w-12 px-1 py-1 rounded border border-slate-200 bg-slate-50 text-center font-bold text-slate-800 focus:bg-indigo-50/50 focus:border-indigo-500 focus:outline-none"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={row.qty_ack || ''}
+                                  onChange={e => handlePaperGridChange(index, 'qty_ack', Number(e.target.value))}
+                                  placeholder="-"
+                                  className="w-12 px-1 py-1 rounded border border-slate-200 bg-slate-50 text-center font-bold text-slate-800 focus:bg-indigo-50/50 focus:border-indigo-500 focus:outline-none"
+                                />
+                              </td>
+                              <td className="px-4 py-1.5">
+                                <input
+                                  type="text"
+                                  value={row.note}
+                                  onChange={e => handlePaperGridChange(index, 'note', e.target.value)}
+                                  placeholder="Stains, tears, special care instructions..."
+                                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 focus:bg-indigo-50/50 focus:border-indigo-500 focus:outline-none"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Standard Order items builder */
+                <>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Channel</label>
+                      <select
+                        value={channel}
+                        onChange={e => setChannel(e.target.value)}
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                      >
+                        <option value="Walk-in">Walk-in</option>
+                        <option value="Corporate">Corporate</option>
+                        <option value="Online">Online</option>
+                        <option value="WhatsApp">WhatsApp</option>
+                        <option value="Phone">Phone</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Priority</label>
+                      <select
+                        value={priority}
+                        onChange={e => {
+                          setPriority(e.target.value as any);
+                          const updated = orderLines.map(l => {
+                            if (l.item_id && l.service_id) {
+                              const price = handlePricingLookup(l.item_id, l.service_id);
+                              return { ...l, unit_price: price };
+                            }
+                            return l;
+                          });
+                          setOrderLines(updated);
+                        }}
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                      >
+                        <option value="Standard">Standard</option>
+                        <option value="Express">Express</option>
+                        <option value="Urgent">Urgent</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Due Date</label>
+                      <input
+                        type="date"
+                        value={due_date}
+                        onChange={e => setDueDate(e.target.value)}
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Order Line Items</span>
+                      <button
+                        type="button"
+                        onClick={handleAddLine}
+                        className="text-xs font-bold text-indigo-500 hover:text-indigo-600 transition-colors"
+                      >
+                        + Add Item
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {orderLines.map((line, idx) => (
+                        <div key={idx} className="flex gap-3 items-end">
+                          <div className="flex-1 space-y-1">
+                            <label className="text-[9px] font-bold text-slate-400 uppercase">Garment Type</label>
+                            <select
+                              required
+                              value={line.item_id}
+                              onChange={e => handleLineChange(idx, 'item_id', e.target.value)}
+                              className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50"
+                            >
+                              <option value="">Select garment</option>
+                              {items.map(i => (
+                                <option key={i.id} value={i.id}>{i.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="flex-1 space-y-1">
+                            <label className="text-[9px] font-bold text-slate-400 uppercase">Cleaning Service</label>
+                            <select
+                              required
+                              value={line.service_id}
+                              onChange={e => handleLineChange(idx, 'service_id', e.target.value)}
+                              className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50"
+                            >
+                              <option value="">Select service</option>
+                              {services.map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="w-16 space-y-1">
+                            <label className="text-[9px] font-bold text-slate-400 uppercase">Qty</label>
+                            <input
+                              type="number"
+                              required
+                              min="1"
+                              value={line.quantity}
+                              onChange={e => handleLineChange(idx, 'quantity', Number(e.target.value))}
+                              className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50 text-center"
+                            />
+                          </div>
+
+                          <div className="w-24 space-y-1">
+                            <label className="text-[9px] font-bold text-slate-400 uppercase">Price (QAR)</label>
+                            <input
+                              type="text"
+                              readOnly
+                              value={Number(line.unit_price * line.quantity).toFixed(2)}
+                              className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-100 bg-slate-100 text-center text-slate-600"
+                            />
+                          </div>
+
+                          {orderLines.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveLine(idx)}
+                              className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-xl transition-all mb-[1px]"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Order Instructions</label>
+                    <textarea
+                      value={notes}
+                      onChange={e => setNotes(e.target.value)}
+                      placeholder="Special instructions for delicate handling, stains, etc."
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white h-16"
+                    />
+                  </div>
+                </>
+              )}
 
               {wallet && (
                 <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-zinc-900 rounded-2xl border border-slate-100 dark:border-zinc-800/50">
@@ -784,21 +1179,48 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
               <div className="p-4 bg-indigo-50/20 dark:bg-zinc-900/50 rounded-2xl border border-slate-100 dark:border-zinc-800/80 space-y-1.5 text-xs font-semibold">
                 <div className="flex justify-between text-slate-500">
                   <span>Subtotal</span>
-                  <span>QAR {orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0).toFixed(2)}</span>
+                  <span>
+                    QAR {
+                      isPaperMode ? 
+                      paperGrid.reduce((sum, row) => {
+                        const matchingItem = items.find(i => i.code === row.code) || items.find(i => i.name.toLowerCase() === row.name.toLowerCase());
+                        const price = matchingItem ? handlePricingLookup(matchingItem.id, (services.find(s => s.code === 'WSH-IRN') || services[0])?.id || '') : 0;
+                        return sum + (Number(row.qty_issued) * price);
+                      }, 0).toFixed(2)
+                      : orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0).toFixed(2)
+                    }
+                  </span>
                 </div>
                 {activeContract && (
                   <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
                     <span>Corporate Contract ({activeContract.discount_percentage}%)</span>
-                    <span>- QAR {((orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0) * Number(activeContract.discount_percentage)) / 100).toFixed(2)}</span>
+                    <span>
+                      - QAR {
+                        ((isPaperMode ? 
+                          paperGrid.reduce((sum, row) => {
+                            const matchingItem = items.find(i => i.code === row.code) || items.find(i => i.name.toLowerCase() === row.name.toLowerCase());
+                            const price = matchingItem ? handlePricingLookup(matchingItem.id, (services.find(s => s.code === 'WSH-IRN') || services[0])?.id || '') : 0;
+                            return sum + (Number(row.qty_issued) * price);
+                          }, 0)
+                          : orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0)
+                        ) * Number(activeContract.discount_percentage) / 100).toFixed(2)
+                      }
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm font-bold text-slate-800 dark:text-white pt-1.5 border-t border-slate-100 dark:border-zinc-800">
                   <span>Total Net Amount</span>
                   <span>
-                    QAR {(
-                      orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0) -
-                      (activeContract ? (orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0) * Number(activeContract.discount_percentage)) / 100 : 0)
-                    ).toFixed(2)}
+                    QAR {
+                      ((isPaperMode ? 
+                        paperGrid.reduce((sum, row) => {
+                          const matchingItem = items.find(i => i.code === row.code) || items.find(i => i.name.toLowerCase() === row.name.toLowerCase());
+                          const price = matchingItem ? handlePricingLookup(matchingItem.id, (services.find(s => s.code === 'WSH-IRN') || services[0])?.id || '') : 0;
+                          return sum + (Number(row.qty_issued) * price);
+                        }, 0)
+                        : orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0)
+                      ) * (1 - (activeContract ? Number(activeContract.discount_percentage) / 100 : 0))).toFixed(2)
+                    }
                   </span>
                 </div>
               </div>

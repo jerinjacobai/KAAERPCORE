@@ -30,7 +30,8 @@ import {
   updateBatchStage,
   getInventoryItems,
   getWarehouseBins,
-  consumeSupply
+  consumeSupply,
+  getLaundryClientEmployees
 } from './services';
 import { LaundryOrder, LaundryBatch, LaundryMachine, LaundryOrderItem, LaundryService, LaundryItem, LaundryPricing } from './types';
 
@@ -81,10 +82,21 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
   const [clerkCompany, setClerkCompany] = useState('');
   const [clerkBldgNo, setClerkBldgNo] = useState('');
   const [clerkRoomNo, setClerkRoomNo] = useState('');
+  const [clerkMobile, setClerkMobile] = useState('');
   const [clerkDueDate, setClerkDueDate] = useState('');
   const [clerkNotes, setClerkNotes] = useState('');
   const [itemQuantities, setItemQuantities] = useState<Record<string, number>>({});
   const [submittingIntake, setSubmittingIntake] = useState(false);
+
+  // Client employees state for portal
+  const [clientEmployees, setClientEmployees] = useState<LaundryClientEmployee[]>([]);
+  const [selectedPortalEmployeeId, setSelectedPortalEmployeeId] = useState('');
+
+  useEffect(() => {
+    if (currentCompanyId) {
+      getLaundryClientEmployees(currentCompanyId).then(setClientEmployees).catch(console.error);
+    }
+  }, [currentCompanyId, currentScreen]);
 
   // 2. Hub Wash Operator States
   const [operatorBatches, setOperatorBatches] = useState<LaundryBatch[]>([]);
@@ -190,6 +202,28 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
     }
   };
 
+  const handlePortalEmployeeSelect = (empId: string) => {
+    setSelectedPortalEmployeeId(empId);
+    if (!empId) {
+      setClerkEmpName('');
+      setClerkEmpNo('');
+      setClerkBldgNo('');
+      setClerkRoomNo('');
+      setClerkMobile('');
+      setClerkCompany('');
+      return;
+    }
+    const emp = clientEmployees.find(e => e.id === empId);
+    if (emp) {
+      setClerkEmpName(emp.name || '');
+      setClerkEmpNo(emp.employee_no || '');
+      setClerkBldgNo(emp.building_no || '');
+      setClerkRoomNo(emp.room_no || '');
+      setClerkMobile(emp.mobile || '');
+      setClerkCompany(emp.client_customer_name || '');
+    }
+  };
+
   // Intake Submit Handler
   const handleIntakeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,8 +242,6 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
     setSubmittingIntake(true);
     try {
       // 1. Resolve or create customer matching corporate company name
-      // To keep it simple, we find/use customer from props or link to corporate client
-      // Let's resolve the customer matching the dropdown/text or default to first corporate customer
       let customerId = customers[0]?.id;
       const matchedCust = customers.find(c => c.name.toLowerCase().includes(clerkCompany.toLowerCase()));
       if (matchedCust) {
@@ -220,30 +252,40 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
       const orderLines = Object.entries(itemQuantities)
         .filter(([_, qty]) => qty > 0)
         .map(([itemId, qty]) => {
-          // Default to washing service or first service
           const serviceId = services[0]?.id || '';
           const rate = pricing.find(p => p.item_id === itemId && p.service_id === serviceId);
           return {
             item_id: itemId,
             service_id: serviceId,
             quantity: qty,
-            unit_price: Number(rate?.unit_price || 0)
+            unit_price: Number(rate?.unit_price || 0),
+            qty_issued: qty,
+            qty_recv: 0,
+            qty_ret: 0,
+            qty_ack: 0,
+            notes: ''
           };
         });
 
       // 3. Calculate totals
       const subtotal = orderLines.reduce((sum, l) => sum + (l.quantity * l.unit_price), 0);
 
-      // 4. Create Order
+      // 4. Create Order with decoupled paper slip parameters
       await onCreateOrder({
         customer_id: customerId,
         branch_id: selectedBranchId || null,
         channel: 'Corporate',
         priority: 'Standard',
         due_date: clerkDueDate || null,
-        notes: `Intake Slip No: #${slipNo} | Corporate Emp Name: ${clerkEmpName} | Room: ${clerkRoomNo} | Bldg: ${clerkBldgNo} | Emp No: ${clerkEmpNo}. Notes: ${clerkNotes}`,
+        notes: clerkNotes,
         total_amount: subtotal,
-        status: 'Branch Receive' // Counter Clerk receives and sets to Branch Receive
+        status: 'Branch Receive',
+        receipt_no: slipNo,
+        client_employee_name: clerkEmpName,
+        client_employee_no: clerkEmpNo,
+        room_no: clerkRoomNo,
+        building_no: clerkBldgNo,
+        client_mobile: clerkMobile
       }, orderLines);
 
       alert(`Intake Receipt #${slipNo} successfully saved to database! Total: ${totalPieces} items.`);
@@ -254,8 +296,10 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
       setClerkCompany('');
       setClerkBldgNo('');
       setClerkRoomNo('');
+      setClerkMobile('');
       setClerkNotes('');
       setClerkDueDate('');
+      setSelectedPortalEmployeeId('');
       const resetQty: Record<string, number> = {};
       items.forEach(it => { resetQty[it.id] = 0; });
       setItemQuantities(resetQty);
@@ -609,11 +653,25 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
                 </button>
               </div>
 
-              {/* Clerk Scrollable Form */}
+               {/* Clerk Scrollable Form */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 <div className="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 p-4 rounded-3xl shadow-sm space-y-3">
                   <span className="text-[9px] uppercase font-bold text-slate-400 dark:text-zinc-500 block">Linen Issue Ticket Details</span>
                   
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-bold text-slate-400 uppercase">Select Pre-Registered Tenant</label>
+                    <select
+                      value={selectedPortalEmployeeId}
+                      onChange={e => handlePortalEmployeeSelect(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 text-slate-850 dark:text-white"
+                    >
+                      <option value="">-- Manual Entry / Custom --</option>
+                      {clientEmployees.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.name} ({emp.employee_no})</option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="space-y-1">
                       <label className="text-[8px] font-bold text-slate-400 uppercase">Employee Name</label>
@@ -638,7 +696,7 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
                       />
                     </div>
                   </div>
-
+ 
                   <div className="space-y-1">
                     <label className="text-[8px] font-bold text-slate-400 uppercase">Company Name</label>
                     <select
@@ -653,7 +711,7 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
                       ))}
                     </select>
                   </div>
-
+ 
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="space-y-1">
                       <label className="text-[8px] font-bold text-slate-400 uppercase">Building No.</label>
@@ -677,14 +735,26 @@ export const EmployeePortalTab: React.FC<EmployeePortalTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="text-[8px] font-bold text-slate-400 uppercase">Due Date / Return Scheduled</label>
-                    <input
-                      type="date"
-                      value={clerkDueDate}
-                      onChange={e => setClerkDueDate(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 text-slate-850 dark:text-white"
-                    />
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[8px] font-bold text-slate-400 uppercase">Mobile Number</label>
+                      <input
+                        type="text"
+                        value={clerkMobile}
+                        onChange={e => setClerkMobile(e.target.value)}
+                        placeholder="e.g. +974 5551 2345"
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 text-slate-850 dark:text-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[8px] font-bold text-slate-400 uppercase">Return Schedule Date</label>
+                      <input
+                        type="date"
+                        value={clerkDueDate}
+                        onChange={e => setClerkDueDate(e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 text-slate-850 dark:text-white"
+                      />
+                    </div>
                   </div>
                 </div>
 

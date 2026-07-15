@@ -11,11 +11,27 @@ import {
   Percent,
   Wrench,
   Clock,
-  User
+  User,
+  Users,
+  UserCheck,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
-import { LaundryService, LaundryItem, LaundryPricing, LaundryMachine } from './types';
+import { LaundryService, LaundryItem, LaundryPricing, LaundryMachine, LaundryCustomer, LaundryClientEmployee } from './types';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCorporateContracts, saveCorporateContract, getMaintenanceLogs, createMaintenanceLog } from './services';
+import { 
+  getCorporateContracts, 
+  saveCorporateContract, 
+  getMaintenanceLogs, 
+  createMaintenanceLog,
+  getLaundryCustomers,
+  saveLaundryCustomer,
+  deleteLaundryCustomer,
+  getLaundryClientEmployees,
+  saveLaundryClientEmployee,
+  deleteLaundryClientEmployee,
+  seedLaundryDemoData
+} from './services';
 
 interface MastersTabProps {
   services: LaundryService[];
@@ -28,6 +44,7 @@ interface MastersTabProps {
   onSaveItem: (item: Partial<LaundryItem>) => Promise<void>;
   onSaveMachine: (machine: Partial<LaundryMachine>) => Promise<void>;
   onSavePricing: (pricing: Partial<LaundryPricing>) => Promise<void>;
+  onRefreshAllMasters?: () => void;
 }
 
 export const MastersTab: React.FC<MastersTabProps> = ({
@@ -40,9 +57,10 @@ export const MastersTab: React.FC<MastersTabProps> = ({
   onSaveService,
   onSaveItem,
   onSaveMachine,
-  onSavePricing
+  onSavePricing,
+  onRefreshAllMasters
 }) => {
-  const [subTab, setSubTab] = useState<'services' | 'items' | 'pricing' | 'machines' | 'contracts' | 'maintenance'>('services');
+  const [subTab, setSubTab] = useState<'services' | 'items' | 'pricing' | 'machines' | 'customers' | 'employees' | 'contracts' | 'maintenance'>('services');
   
   // Dialog States
   const [isOpen, setIsOpen] = useState(false);
@@ -51,8 +69,32 @@ export const MastersTab: React.FC<MastersTabProps> = ({
   const [machineForm, setMachineForm] = useState<Partial<LaundryMachine> & { branch_id?: string }>({ name: '', code: '', type: 'Washer', capacity: '', status: 'Idle', branch_id: '' });
   const [pricingForm, setPricingForm] = useState<Partial<LaundryPricing> & { branch_id?: string }>({ item_id: '', service_id: '', unit_price: 0, express_price: 0, branch_id: '' });
 
-  // Phase 2 Masters States
+  // Standalone Masters States
   const { currentCompanyId } = useAuth();
+  const [localCustomers, setLocalCustomers] = useState<LaundryCustomer[]>([]);
+  const [clientEmployees, setClientEmployees] = useState<LaundryClientEmployee[]>([]);
+  const [seedingDemo, setSeedingDemo] = useState(false);
+
+  // Forms
+  const [customerForm, setCustomerForm] = useState<Partial<LaundryCustomer>>({
+    name: '',
+    mobile: '',
+    email: '',
+    type: 'Individual',
+    status: 'Active'
+  });
+
+  const [employeeForm, setEmployeeForm] = useState<Partial<LaundryClientEmployee>>({
+    client_customer_id: '',
+    name: '',
+    employee_no: '',
+    mobile: '',
+    room_no: '',
+    building_no: '',
+    status: 'Active'
+  });
+
+  // Phase 2 Masters States
   const [contracts, setContracts] = useState<any[]>([]);
   const [contractForm, setContractForm] = useState({
     customer_id: '',
@@ -74,6 +116,26 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     description: ''
   });
   const [savingMaintenance, setSavingMaintenance] = useState(false);
+
+  const fetchLocalCustomers = async () => {
+    if (!currentCompanyId) return;
+    try {
+      const data = await getLaundryCustomers(currentCompanyId);
+      setLocalCustomers(data);
+    } catch (err) {
+      console.error('Error fetching local customers:', err);
+    }
+  };
+
+  const fetchClientEmployees = async () => {
+    if (!currentCompanyId) return;
+    try {
+      const data = await getLaundryClientEmployees(currentCompanyId);
+      setClientEmployees(data);
+    } catch (err) {
+      console.error('Error fetching client employees:', err);
+    }
+  };
 
   const fetchContracts = async () => {
     if (!currentCompanyId) return;
@@ -98,8 +160,31 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     }
   };
 
+  const handleSeedDemoData = async () => {
+    if (!currentCompanyId) return;
+    setSeedingDemo(true);
+    try {
+      await seedLaundryDemoData(currentCompanyId);
+      await Promise.all([
+        fetchLocalCustomers(),
+        fetchClientEmployees(),
+        fetchContracts()
+      ]);
+      if (onRefreshAllMasters) {
+        onRefreshAllMasters();
+      }
+      alert('Demo data (QDS, Sheraton, Thennarasu, etc.) loaded successfully!');
+    } catch (err: any) {
+      alert('Error loading demo data: ' + err.message);
+    } finally {
+      setSeedingDemo(false);
+    }
+  };
+
   useEffect(() => {
     fetchContracts();
+    fetchLocalCustomers();
+    fetchClientEmployees();
   }, [currentCompanyId]);
 
   useEffect(() => {
@@ -117,6 +202,8 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     setItemForm({ name: '', code: '', category: 'Apparel' });
     setMachineForm({ name: '', code: '', type: 'Washer', capacity: '', status: 'Idle' });
     setPricingForm({ item_id: '', service_id: '', unit_price: 0, express_price: 0 });
+    setCustomerForm({ name: '', mobile: '', email: '', type: 'Individual', status: 'Active' });
+    setEmployeeForm({ client_customer_id: '', name: '', employee_no: '', mobile: '', room_no: '', building_no: '', status: 'Active' });
     setContractForm({
       customer_id: '',
       contract_number: '',
@@ -135,6 +222,27 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     });
   };
 
+  const handleDeleteCustomer = async (id: string) => {
+    if (!currentCompanyId || !confirm('Are you sure you want to delete this customer?')) return;
+    try {
+      await deleteLaundryCustomer(currentCompanyId, id);
+      await fetchLocalCustomers();
+      if (onRefreshAllMasters) onRefreshAllMasters();
+    } catch (err: any) {
+      alert('Error deleting customer: ' + err.message);
+    }
+  };
+
+  const handleDeleteEmployee = async (id: string) => {
+    if (!currentCompanyId || !confirm('Are you sure you want to delete this employee?')) return;
+    try {
+      await deleteLaundryClientEmployee(currentCompanyId, id);
+      await fetchClientEmployees();
+    } catch (err: any) {
+      alert('Error deleting employee: ' + err.message);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -146,6 +254,15 @@ export const MastersTab: React.FC<MastersTabProps> = ({
         await onSaveMachine(machineForm);
       } else if (subTab === 'pricing') {
         await onSavePricing(pricingForm);
+      } else if (subTab === 'customers') {
+        if (!currentCompanyId) return;
+        await saveLaundryCustomer(currentCompanyId, customerForm);
+        await fetchLocalCustomers();
+        if (onRefreshAllMasters) onRefreshAllMasters();
+      } else if (subTab === 'employees') {
+        if (!currentCompanyId) return;
+        await saveLaundryClientEmployee(currentCompanyId, employeeForm);
+        await fetchClientEmployees();
       } else if (subTab === 'contracts') {
         if (!currentCompanyId) return;
         await saveCorporateContract(currentCompanyId, contractForm);
@@ -167,8 +284,8 @@ export const MastersTab: React.FC<MastersTabProps> = ({
   return (
     <div className="space-y-6">
       {/* Sub Tabs */}
-      <div className="flex justify-between items-center border-b border-slate-100 dark:border-zinc-800 pb-3">
-        <div className="flex gap-2 p-1 bg-slate-100 dark:bg-zinc-900 rounded-2xl">
+      <div className="flex flex-wrap justify-between items-center border-b border-slate-100 dark:border-zinc-800 pb-3 gap-4">
+        <div className="flex flex-wrap gap-2 p-1 bg-slate-100 dark:bg-zinc-900 rounded-2xl">
           <button
             onClick={() => setSubTab('services')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${subTab === 'services' ? 'bg-white dark:bg-zinc-800 text-indigo-500 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -194,6 +311,18 @@ export const MastersTab: React.FC<MastersTabProps> = ({
             <Cpu className="w-4 h-4" /> Machinery
           </button>
           <button
+            onClick={() => setSubTab('customers')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${subTab === 'customers' ? 'bg-white dark:bg-zinc-800 text-indigo-500 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Users className="w-4 h-4" /> Customers
+          </button>
+          <button
+            onClick={() => setSubTab('employees')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${subTab === 'employees' ? 'bg-white dark:bg-zinc-800 text-indigo-500 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <UserCheck className="w-4 h-4" /> Corporate Tenants
+          </button>
+          <button
             onClick={() => setSubTab('contracts')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${subTab === 'contracts' ? 'bg-white dark:bg-zinc-800 text-indigo-500 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
@@ -207,14 +336,32 @@ export const MastersTab: React.FC<MastersTabProps> = ({
           </button>
         </div>
 
-        {subTab !== 'maintenance' && (
+        <div className="flex gap-2">
           <button
-            onClick={handleOpenDialog}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-2xl shadow-md transition-all active:scale-95"
+            onClick={handleSeedDemoData}
+            disabled={seedingDemo}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold rounded-2xl shadow-md transition-all active:scale-95 disabled:opacity-50"
           >
-            <Plus className="w-4 h-4" /> Add {subTab === 'contracts' ? 'Contract' : 'Master'}
+            {seedingDemo ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" /> Loading...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 animate-pulse" /> Load Demo Data
+              </>
+            )}
           </button>
-        )}
+
+          {subTab !== 'maintenance' && (
+            <button
+              onClick={handleOpenDialog}
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-2xl shadow-md transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" /> Add {subTab === 'contracts' ? 'Contract' : subTab === 'employees' ? 'Tenant' : subTab === 'customers' ? 'Customer' : 'Master'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Lists */}
@@ -325,6 +472,92 @@ export const MastersTab: React.FC<MastersTabProps> = ({
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        )}
+
+        {subTab === 'customers' && (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50/50 dark:bg-zinc-900/50 border-b border-slate-100 dark:border-zinc-800">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Customer Name</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Type</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Mobile</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Email</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Status</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs font-medium text-slate-600 dark:text-slate-300">
+              {localCustomers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-slate-400">No customers registered yet. Click 'Load Demo Data' or 'Add Customer'.</td>
+                </tr>
+              ) : (
+                localCustomers.map(c => (
+                  <tr key={c.id} className="hover:bg-slate-50/30 dark:hover:bg-zinc-900/30">
+                    <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{c.name}</td>
+                    <td className="px-6 py-4">
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20">{c.type}</span>
+                    </td>
+                    <td className="px-6 py-4 font-semibold">{c.mobile || 'N/A'}</td>
+                    <td className="px-6 py-4">{c.email || 'N/A'}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${c.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                        {c.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => handleDeleteCustomer(c.id)}
+                        className="text-rose-500 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
+
+        {subTab === 'employees' && (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50/50 dark:bg-zinc-900/50 border-b border-slate-100 dark:border-zinc-800">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Tenant Name</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Employee #</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Company (Customer)</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Bldg / Room No</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Mobile</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs font-medium text-slate-600 dark:text-slate-300">
+              {clientEmployees.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-slate-400">No corporate tenants registered. Click 'Load Demo Data' or 'Add Tenant'.</td>
+                </tr>
+              ) : (
+                clientEmployees.map(e => (
+                  <tr key={e.id} className="hover:bg-slate-50/30 dark:hover:bg-zinc-900/30">
+                    <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{e.name}</td>
+                    <td className="px-6 py-4 font-bold text-slate-500">{e.employee_no}</td>
+                    <td className="px-6 py-4 text-indigo-500 font-semibold">{e.client_customer_name}</td>
+                    <td className="px-6 py-4">Bldg {e.building_no || 'N/A'} / Room {e.room_no || 'N/A'}</td>
+                    <td className="px-6 py-4 font-semibold">{e.mobile || 'N/A'}</td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => handleDeleteEmployee(e.id)}
+                        className="text-rose-500 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         )}
@@ -748,10 +981,135 @@ export const MastersTab: React.FC<MastersTabProps> = ({
                 </>
               )}
 
+              {subTab === 'customers' && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={customerForm.name}
+                      onChange={e => setCustomerForm({ ...customerForm, name: e.target.value })}
+                      placeholder="e.g. QDS Corporates"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer Type</label>
+                    <select
+                      value={customerForm.type}
+                      onChange={e => setCustomerForm({ ...customerForm, type: e.target.value as any })}
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    >
+                      <option value="Individual">Individual</option>
+                      <option value="Corporate">Corporate / Contracts</option>
+                      <option value="Hotels">Hotels</option>
+                      <option value="Hospitals">Hospitals</option>
+                      <option value="Factories">Factories</option>
+                      <option value="Restaurants">Restaurants</option>
+                      <option value="Uniform Contracts">Uniform Contracts</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mobile Number</label>
+                    <input
+                      type="text"
+                      value={customerForm.mobile}
+                      onChange={e => setCustomerForm({ ...customerForm, mobile: e.target.value })}
+                      placeholder="e.g. +974 5550 1234"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Email Address</label>
+                    <input
+                      type="email"
+                      value={customerForm.email}
+                      onChange={e => setCustomerForm({ ...customerForm, email: e.target.value })}
+                      placeholder="e.g. contact@qds.qa"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    />
+                  </div>
+                </>
+              )}
+
+              {subTab === 'employees' && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Corporate Customer</label>
+                    <select
+                      required
+                      value={employeeForm.client_customer_id}
+                      onChange={e => setEmployeeForm({ ...employeeForm, client_customer_id: e.target.value })}
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    >
+                      <option value="">-- Choose Corporate Company --</option>
+                      {localCustomers.filter(c => c.type !== 'Individual').map(c => (
+                        <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tenant (Employee) Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={employeeForm.name}
+                      onChange={e => setEmployeeForm({ ...employeeForm, name: e.target.value })}
+                      placeholder="e.g. Thennarasu"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Employee ID / Code</label>
+                    <input
+                      type="text"
+                      required
+                      value={employeeForm.employee_no}
+                      onChange={e => setEmployeeForm({ ...employeeForm, employee_no: e.target.value })}
+                      placeholder="e.g. 24535"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Building No</label>
+                      <input
+                        type="text"
+                        value={employeeForm.building_no}
+                        onChange={e => setEmployeeForm({ ...employeeForm, building_no: e.target.value })}
+                        placeholder="e.g. 120"
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Room No / Flat No</label>
+                      <input
+                        type="text"
+                        value={employeeForm.room_no}
+                        onChange={e => setEmployeeForm({ ...employeeForm, room_no: e.target.value })}
+                        placeholder="e.g. 17"
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mobile Number</label>
+                    <input
+                      type="text"
+                      value={employeeForm.mobile}
+                      onChange={e => setEmployeeForm({ ...employeeForm, mobile: e.target.value })}
+                      placeholder="e.g. +974 5551 2345"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    />
+                  </div>
+                </>
+              )}
+
               {subTab === 'contracts' && (
                 <>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select CRM Customer</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Corporate Customer</label>
                     <select
                       required
                       value={contractForm.customer_id}
@@ -759,7 +1117,7 @@ export const MastersTab: React.FC<MastersTabProps> = ({
                       className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
                     >
                       <option value="">-- Choose customer --</option>
-                      {customers.map(c => (
+                      {localCustomers.map(c => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>

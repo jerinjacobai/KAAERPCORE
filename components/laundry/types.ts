@@ -34,6 +34,32 @@ export interface LaundryPricing {
   service?: LaundryService;
 }
 
+export interface LaundryCustomer {
+  id: string;
+  created_at: string;
+  company_id: string;
+  name: string;
+  mobile?: string;
+  email?: string;
+  type: 'Individual' | 'Corporate' | 'Hotels' | 'Hospitals' | 'Factories' | 'Restaurants' | 'Uniform Contracts';
+  status: string;
+}
+
+export interface LaundryClientEmployee {
+  id: string;
+  created_at: string;
+  company_id: string;
+  client_customer_id: string;
+  name: string;
+  employee_no: string;
+  mobile?: string;
+  room_no?: string;
+  building_no?: string;
+  status: string;
+  // Joined field
+  client_customer_name?: string;
+}
+
 export interface LaundryCustomerProfile {
   id: string;
   created_at: string;
@@ -77,6 +103,13 @@ export interface LaundryOrder {
   accounting_invoice_id?: string;
   created_by?: string;
   notes?: string;
+  // Paper Slip Metadata
+  receipt_no?: string;
+  client_employee_name?: string;
+  client_employee_no?: string;
+  room_no?: string;
+  building_no?: string;
+  client_mobile?: string;
   // Joined fields
   customer_name?: string;
   branch_name?: string;
@@ -96,6 +129,11 @@ export interface LaundryOrderItem {
   status: 'Pending' | 'Processing' | 'QC Passed' | 'QC Failed' | 'Rewash' | 'Completed';
   barcode?: string;
   notes?: string;
+  // Paper Slip Column Counts
+  qty_issued: number;
+  qty_recv: number;
+  qty_ret: number;
+  qty_ack: number;
   // Joined fields
   item_name?: string;
   service_name?: string;

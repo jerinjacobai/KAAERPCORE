@@ -738,7 +738,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                 {selectedOrder.client_employee_name && (
                   <>
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-400">Tenant (Employee)</span>
+                      <span className="text-slate-400">Employee Name</span>
                       <span className="font-bold text-slate-700 dark:text-slate-200">
                         {selectedOrder.client_employee_name} ({selectedOrder.client_employee_no || 'N/A'})
                       </span>
@@ -1040,7 +1040,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                     </div>
                     
                     <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-400 uppercase">Select Registered Tenant</label>
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Select Registered Employee</label>
                       <select
                         value={selectedEmployeeId}
                         onChange={e => handleEmployeeSelect(e.target.value)}
@@ -1054,7 +1054,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-400 uppercase">Tenant Name</label>
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Employee Name</label>
                       <input
                         type="text"
                         required

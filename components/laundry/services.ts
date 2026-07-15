@@ -1053,3 +1053,24 @@ export const seedLaundryDemoData = async (companyId: string): Promise<void> => {
 };
 
 
+export const saveMasterEmployee = async (companyId: string, employee: any) => {
+  if (employee.id) {
+    const { error } = await supabase.from('employees').update(employee).eq('id', employee.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from('employees').insert({ ...employee, company_id: companyId });
+    if (error) throw error;
+  }
+};
+
+export const deleteMasterEmployee = async (companyId: string, employeeId: string) => {
+  const { error } = await supabase.from('employees').delete().eq('id', employeeId);
+  if (error) throw error;
+};
+
+export const deleteLaundryVehicle = async (companyId: string, id: string) => {
+  const { error } = await supabase.from('laundry_vehicles').delete().eq('id', id);
+  if (error) throw error;
+};
+
+

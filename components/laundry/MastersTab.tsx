@@ -15,7 +15,9 @@ import {
   Users,
   UserCheck,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Car,
+  UserCog
 } from 'lucide-react';
 import { LaundryService, LaundryItem, LaundryPricing, LaundryMachine, LaundryCustomer, LaundryClientEmployee } from './types';
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,7 +32,12 @@ import {
   getLaundryClientEmployees,
   saveLaundryClientEmployee,
   deleteLaundryClientEmployee,
-  seedLaundryDemoData
+  seedLaundryDemoData,
+  getLaundryVehicles,
+  saveLaundryVehicle,
+  deleteLaundryVehicle,
+  saveMasterEmployee,
+  deleteMasterEmployee
 } from './services';
 
 interface MastersTabProps {
@@ -60,7 +67,7 @@ export const MastersTab: React.FC<MastersTabProps> = ({
   onSavePricing,
   onRefreshAllMasters
 }) => {
-  const [subTab, setSubTab] = useState<'services' | 'items' | 'pricing' | 'machines' | 'customers' | 'employees' | 'contracts' | 'maintenance'>('services');
+  const [subTab, setSubTab] = useState<'services' | 'items' | 'pricing' | 'machines' | 'customers' | 'employees' | 'contracts' | 'maintenance' | 'vehicles' | 'staff'>('services');
   
   // Dialog States
   const [isOpen, setIsOpen] = useState(false);
@@ -74,6 +81,10 @@ export const MastersTab: React.FC<MastersTabProps> = ({
   const [localCustomers, setLocalCustomers] = useState<LaundryCustomer[]>([]);
   const [clientEmployees, setClientEmployees] = useState<LaundryClientEmployee[]>([]);
   const [seedingDemo, setSeedingDemo] = useState(false);
+
+  // Vehicles & Staff Masters States
+  const [vehiclesList, setVehiclesList] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>([]);
 
   // Forms
   const [customerForm, setCustomerForm] = useState<Partial<LaundryCustomer>>({
@@ -92,6 +103,20 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     room_no: '',
     building_no: '',
     status: 'Active'
+  });
+
+  const [vehicleForm, setVehicleForm] = useState({
+    name: '',
+    license_plate: '',
+    type: 'Van',
+    status: 'Active',
+    capacity: '1.5 Tons',
+    current_mileage: 0
+  });
+
+  const [staffForm, setStaffForm] = useState({
+    name: '',
+    role: 'Driver'
   });
 
   // Phase 2 Masters States
@@ -137,6 +162,29 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     }
   };
 
+  const fetchVehicles = async () => {
+    if (!currentCompanyId) return;
+    try {
+      const data = await getLaundryVehicles(currentCompanyId);
+      setVehiclesList(data);
+    } catch (err) {
+      console.error('Error fetching vehicles:', err);
+    }
+  };
+
+  const fetchStaff = async () => {
+    if (!currentCompanyId) return;
+    try {
+      const { data, error } = await import('../../lib/supabase').then(m =>
+        m.supabase.from('employees').select('id, name, role').eq('company_id', currentCompanyId).order('name')
+      );
+      if (error) throw error;
+      setStaffList(data || []);
+    } catch (err) {
+      console.error('Error fetching staff list:', err);
+    }
+  };
+
   const fetchContracts = async () => {
     if (!currentCompanyId) return;
     try {
@@ -168,12 +216,14 @@ export const MastersTab: React.FC<MastersTabProps> = ({
       await Promise.all([
         fetchLocalCustomers(),
         fetchClientEmployees(),
-        fetchContracts()
+        fetchContracts(),
+        fetchVehicles(),
+        fetchStaff()
       ]);
       if (onRefreshAllMasters) {
         onRefreshAllMasters();
       }
-      alert('Demo data (QDS, Sheraton, Thennarasu, etc.) loaded successfully!');
+      alert('Demo data (QDS, Sheraton, Thennarasu, Jacob, Nidhin, vehicles, etc.) loaded successfully!');
     } catch (err: any) {
       alert('Error loading demo data: ' + err.message);
     } finally {
@@ -185,6 +235,8 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     fetchContracts();
     fetchLocalCustomers();
     fetchClientEmployees();
+    fetchVehicles();
+    fetchStaff();
   }, [currentCompanyId]);
 
   useEffect(() => {
@@ -204,6 +256,18 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     setPricingForm({ item_id: '', service_id: '', unit_price: 0, express_price: 0 });
     setCustomerForm({ name: '', mobile: '', email: '', type: 'Individual', status: 'Active' });
     setEmployeeForm({ client_customer_id: '', name: '', employee_no: '', mobile: '', room_no: '', building_no: '', status: 'Active' });
+    setVehicleForm({
+      name: '',
+      license_plate: '',
+      type: 'Van',
+      status: 'Active',
+      capacity: '1.5 Tons',
+      current_mileage: 0
+    });
+    setStaffForm({
+      name: '',
+      role: 'Driver'
+    });
     setContractForm({
       customer_id: '',
       contract_number: '',
@@ -243,6 +307,27 @@ export const MastersTab: React.FC<MastersTabProps> = ({
     }
   };
 
+  const handleDeleteVehicle = async (id: string) => {
+    if (!currentCompanyId || !confirm('Are you sure you want to delete this vehicle?')) return;
+    try {
+      await deleteLaundryVehicle(currentCompanyId, id);
+      await fetchVehicles();
+    } catch (err: any) {
+      alert('Error deleting vehicle: ' + err.message);
+    }
+  };
+
+  const handleDeleteStaff = async (id: string) => {
+    if (!currentCompanyId || !confirm('Are you sure you want to delete this staff employee?')) return;
+    try {
+      await deleteMasterEmployee(currentCompanyId, id);
+      await fetchStaff();
+      if (onRefreshAllMasters) onRefreshAllMasters();
+    } catch (err: any) {
+      alert('Error deleting staff: ' + err.message);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -267,6 +352,15 @@ export const MastersTab: React.FC<MastersTabProps> = ({
         if (!currentCompanyId) return;
         await saveCorporateContract(currentCompanyId, contractForm);
         await fetchContracts();
+      } else if (subTab === 'vehicles') {
+        if (!currentCompanyId) return;
+        await saveLaundryVehicle(currentCompanyId, vehicleForm);
+        await fetchVehicles();
+      } else if (subTab === 'staff') {
+        if (!currentCompanyId) return;
+        await saveMasterEmployee(currentCompanyId, staffForm);
+        await fetchStaff();
+        if (onRefreshAllMasters) onRefreshAllMasters();
       } else if (subTab === 'maintenance') {
         if (!currentCompanyId || !selectedMachineId) return;
         await createMaintenanceLog(currentCompanyId, {
@@ -323,6 +417,18 @@ export const MastersTab: React.FC<MastersTabProps> = ({
             <UserCheck className="w-4 h-4" /> Corporate Tenants
           </button>
           <button
+            onClick={() => setSubTab('vehicles')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${subTab === 'vehicles' ? 'bg-white dark:bg-zinc-800 text-indigo-500 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Car className="w-4 h-4" /> Vehicles
+          </button>
+          <button
+            onClick={() => setSubTab('staff')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${subTab === 'staff' ? 'bg-white dark:bg-zinc-800 text-indigo-500 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <UserCog className="w-4 h-4" /> Laundry Staff
+          </button>
+          <button
             onClick={() => setSubTab('contracts')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${subTab === 'contracts' ? 'bg-white dark:bg-zinc-800 text-indigo-500 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
@@ -358,7 +464,7 @@ export const MastersTab: React.FC<MastersTabProps> = ({
               onClick={handleOpenDialog}
               className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-2xl shadow-md transition-all active:scale-95"
             >
-              <Plus className="w-4 h-4" /> Add {subTab === 'contracts' ? 'Contract' : subTab === 'employees' ? 'Tenant' : subTab === 'customers' ? 'Customer' : 'Master'}
+              <Plus className="w-4 h-4" /> Add {subTab === 'contracts' ? 'Contract' : subTab === 'employees' ? 'Tenant' : subTab === 'customers' ? 'Customer' : subTab === 'vehicles' ? 'Vehicle' : subTab === 'staff' ? 'Staff' : 'Master'}
             </button>
           )}
         </div>
@@ -561,6 +667,86 @@ export const MastersTab: React.FC<MastersTabProps> = ({
             </tbody>
           </table>
         )}
+
+        {subTab === 'vehicles' && (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50/50 dark:bg-zinc-900/50 border-b border-slate-100 dark:border-zinc-800">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Vehicle Name</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">License Plate</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Type</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Capacity</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Mileage</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Status</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs font-medium text-slate-600 dark:text-slate-300">
+              {vehiclesList.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-slate-400">No vehicles registered yet. Click 'Load Demo Data' or 'Add Vehicle'.</td>
+                </tr>
+              ) : (
+                vehiclesList.map(v => (
+                  <tr key={v.id} className="hover:bg-slate-50/30 dark:hover:bg-zinc-900/30">
+                    <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{v.name}</td>
+                    <td className="px-6 py-4 font-mono font-bold text-indigo-500">{v.license_plate}</td>
+                    <td className="px-6 py-4">{v.type}</td>
+                    <td className="px-6 py-4 font-semibold">{v.capacity || 'N/A'}</td>
+                    <td className="px-6 py-4 font-semibold">{Number(v.current_mileage || 0).toLocaleString()} km</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${v.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                        {v.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => handleDeleteVehicle(v.id)}
+                        className="text-rose-500 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
+
+        {subTab === 'staff' && (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50/50 dark:bg-zinc-900/50 border-b border-slate-100 dark:border-zinc-800">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Employee Name</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Laundry Role</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs font-medium text-slate-600 dark:text-slate-300">
+              {staffList.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-6 py-8 text-center text-slate-400">No staff registered yet. Click 'Load Demo Data' or 'Add Staff'.</td>
+                </tr>
+              ) : (
+                staffList.map(s => (
+                  <tr key={s.id} className="hover:bg-slate-50/30 dark:hover:bg-zinc-900/30">
+                    <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{s.name}</td>
+                    <td className="px-6 py-4 font-semibold text-indigo-500">{s.role || 'Operator'}</td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => handleDeleteStaff(s.id)}
+                        className="text-rose-500 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        ) }
 
         {subTab === 'contracts' && (
           <table className="w-full text-left border-collapse">
@@ -1102,6 +1288,113 @@ export const MastersTab: React.FC<MastersTabProps> = ({
                       placeholder="e.g. +974 5551 2345"
                       className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
                     />
+                  </div>
+                </>
+              )}
+
+              {subTab === 'vehicles' && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vehicle Name / Model</label>
+                    <input
+                      type="text"
+                      required
+                      value={vehicleForm.name}
+                      onChange={e => setVehicleForm({ ...vehicleForm, name: e.target.value })}
+                      placeholder="e.g. Delivery Van A (Toyota Townace)"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">License Plate No</label>
+                    <input
+                      type="text"
+                      required
+                      value={vehicleForm.license_plate}
+                      onChange={e => setVehicleForm({ ...vehicleForm, license_plate: e.target.value })}
+                      placeholder="e.g. 5625-LH"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white font-mono font-bold text-indigo-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vehicle Type</label>
+                      <select
+                        value={vehicleForm.type}
+                        onChange={e => setVehicleForm({ ...vehicleForm, type: e.target.value })}
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
+                      >
+                        <option value="Van">Van</option>
+                        <option value="Truck">Truck</option>
+                        <option value="Motorcycle">Motorcycle</option>
+                        <option value="Electric Trike">Electric Trike</option>
+                        <option value="SUV">SUV</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Load Capacity</label>
+                      <input
+                        type="text"
+                        value={vehicleForm.capacity}
+                        onChange={e => setVehicleForm({ ...vehicleForm, capacity: e.target.value })}
+                        placeholder="e.g. 1.5 Tons"
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Current Mileage (km)</label>
+                      <input
+                        type="number"
+                        value={vehicleForm.current_mileage || ''}
+                        onChange={e => setVehicleForm({ ...vehicleForm, current_mileage: Number(e.target.value) })}
+                        placeholder="0"
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                      <select
+                        value={vehicleForm.status}
+                        onChange={e => setVehicleForm({ ...vehicleForm, status: e.target.value })}
+                        className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Out of Service">Out of Service</option>
+                        <option value="Under Repair">Under Repair</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {subTab === 'staff' && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Employee Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={staffForm.name}
+                      onChange={e => setStaffForm({ ...staffForm, name: e.target.value })}
+                      placeholder="e.g. Jacob Mathew"
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Laundry Assignment Role</label>
+                    <select
+                      value={staffForm.role}
+                      onChange={e => setStaffForm({ ...staffForm, role: e.target.value })}
+                      className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
+                    >
+                      <option value="Driver">Logistics Driver</option>
+                      <option value="Counter Clerk">Counter Clerk</option>
+                      <option value="Washing Operator">Washing Operator</option>
+                      <option value="Quality Assurer">Quality Assurer</option>
+                      <option value="Laundry Supervisor">Laundry Supervisor</option>
+                    </select>
                   </div>
                 </>
               )}

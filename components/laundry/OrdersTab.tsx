@@ -15,7 +15,8 @@ import {
   QrCode,
   Percent,
   Send,
-  Star
+  Star,
+  Printer
 } from 'lucide-react';
 import { LaundryOrder, LaundryOrderItem, LaundryService, LaundryItem, LaundryPricing, LaundryClientEmployee } from './types';
 import { useAuth } from '../../contexts/AuthContext';
@@ -416,6 +417,166 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
     setIsInvoiceOpen(true);
   };
 
+  const handlePrintReceipt = (order: LaundryOrder, lines: LaundryOrderItem[]) => {
+    const printWindow = window.open('', '_blank', 'width=600,height=800');
+    if (!printWindow) {
+      alert('Pop-up blocked! Please allow pop-ups to print the receipt.');
+      return;
+    }
+    
+    const dateStr = order.created_at ? new Date(order.created_at).toLocaleDateString() : new Date().toLocaleDateString();
+    
+    const html = `
+      <html>
+        <head>
+          <title>Laundry Receipt #${order.receipt_no || order.order_number}</title>
+          <style>
+            body {
+              font-family: 'Courier New', Courier, monospace;
+              font-size: 12px;
+              color: #000;
+              padding: 20px;
+              max-width: 380px;
+              margin: 0 auto;
+            }
+            .header {
+              text-align: center;
+              border-bottom: 2px dashed #000;
+              padding-bottom: 10px;
+              margin-bottom: 15px;
+            }
+            .header h2 {
+              margin: 0 0 5px 0;
+               font-size: 16px;
+              text-transform: uppercase;
+            }
+            .meta-row {
+              display: flex;
+              justify-content: space-between;
+              margin: 4px 0;
+            }
+            .meta-label {
+              font-weight: bold;
+            }
+            .grid-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 15px;
+              border-bottom: 2px dashed #000;
+            }
+            .grid-table th, .grid-table td {
+              padding: 6px 4px;
+              text-align: left;
+            }
+            .grid-table th {
+              border-bottom: 1px dashed #000;
+              font-size: 10px;
+            }
+            .text-center {
+              text-align: center;
+            }
+            .text-right {
+              text-align: right;
+            }
+            .footer {
+              margin-top: 20px;
+              text-align: center;
+              font-size: 10px;
+              border-top: 1px dashed #000;
+              padding-top: 10px;
+            }
+            @media print {
+              body {
+                padding: 0;
+                margin: 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h2>LAUNDRY SERVICE SLIP</h2>
+            <div>KAA ERP Laundry System</div>
+            <div style="margin-top: 5px; font-weight: bold;">RECEIPT NO: ${order.receipt_no || 'N/A'}</div>
+          </div>
+          
+          <div class="meta-row">
+            <span class="meta-label">Order Ref:</span>
+            <span>${order.order_number}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Date:</span>
+            <span>${dateStr}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Client Company:</span>
+            <span>${order.customer_name}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Employee Name:</span>
+            <span>${order.client_employee_name || 'N/A'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Employee No:</span>
+            <span>${order.client_employee_no || 'N/A'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Bldg / Room:</span>
+            <span>Bldg ${order.building_no || 'N/A'} / Room ${order.room_no || 'N/A'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Mobile:</span>
+            <span>${order.client_mobile || 'N/A'}</span>
+          </div>
+          
+          <table class="grid-table">
+            <thead>
+              <tr>
+                <th>GARMENT</th>
+                <th class="text-center">ISD</th>
+                <th class="text-center">RCV</th>
+                <th class="text-center">RET</th>
+                <th class="text-center">ACK</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lines.map(l => `
+                <tr>
+                  <td style="font-weight: bold;">${l.item_name}</td>
+                  <td class="text-center">${l.qty_issued || 0}</td>
+                  <td class="text-center">${l.qty_recv || 0}</td>
+                  <td class="text-center">${l.qty_ret || 0}</td>
+                  <td class="text-center">${l.qty_ack || 0}</td>
+                </tr>
+                ${l.notes ? `<tr><td colspan="5" style="font-size: 9px; color: #555; padding-bottom: 6px; padding-left: 10px;">* Note: ${l.notes}</td></tr>` : ''}
+              `).join('')}
+            </tbody>
+          </table>
+          
+          <div class="meta-row" style="margin-top: 10px; font-weight: bold; font-size: 13px;">
+            <span>TOTAL AMOUNT:</span>
+            <span>QAR ${Number(order.total_amount).toFixed(2)}</span>
+          </div>
+          
+          <div class="footer">
+            <p>Keep this slip inside the laundry bag.</p>
+            <p>Thank you for using KAA ERP Laundry Services</p>
+          </div>
+          
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `;
+    
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   const handlePrintBarcodeClick = () => {
     if (!selectedOrder) return;
     setBarcodeOrder(selectedOrder);
@@ -751,6 +912,16 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                   <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 text-xs font-bold rounded-2xl text-center border border-emerald-100/50 dark:border-emerald-900/30">
                     Billed under Invoice Move ID: {selectedOrder.accounting_invoice_id.substring(0,8)}...
                   </div>
+                )}
+
+                {/* Print Receipt Button */}
+                {selectedOrder.receipt_no && (
+                  <button
+                    onClick={() => handlePrintReceipt(selectedOrder, selectedOrderItems)}
+                    className="w-full py-2.5 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white text-xs font-bold rounded-2xl transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95 mt-2"
+                  >
+                    <Printer className="w-4 h-4" /> Print Bag Tag (Service Slip)
+                  </button>
                 )}
               </div>
 
